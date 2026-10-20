@@ -1,0 +1,339 @@
+# PUNCH NextGen: Quiz & Rewards Platform
+
+A full-stack prototype where students play timed quizzes from the PUNCH desks and see right or wrong after every answer. They earn points and XP, unlock badges, climb leaderboards and redeem points for rewards. It's built around the NextGen pillars: **Learn, Play, Explore, Belong**.
+
+- **Live demo:** _add your deployed URL here_
+- **Walkthrough video:** _add your video link here_
+
+## Assessment checklist
+
+Where each requirement in the brief is met:
+
+| Brief | How it's met | Where |
+|---|---|---|
+| **1. Registration & dashboard** | Register and log in (bcrypt + JWT) | `server/routes/auth.js`, `#/register`, `#/login` |
+| | Dashboard with the student's name, **total XP**, points to spend, **quizzes completed**, **badges earned**, streak, rank, accuracy | `server/routes/me.js` (`/me/dashboard`), `#/me` |
+| **2. Quiz system** | 5 quizzes, each with a 12-question bank; every attempt **presents 10 multiple-choice questions** | `server/seedData.js` |
+| | Select an answer (click or A–D), lock it, see feedback, submit | `public/js/app.js` (`viewQuiz`) |
+| | **Scores calculated on the server** and **results shown** with a full review | `server/routes/quizzes.js` (`/submit`) |
+| | **Attempts and answers saved** | `attempts`, `attempt_answers` tables |
+| | **Repeat submissions can't earn duplicate rewards**: an attempt can only be submitted once (`409`), and quiz points are paid once per quiz per day | `quizzes.js`, tests |
+| **3. Gamification** | Points and XP, 7 levels | `server/gamification.js` |
+| | **12 badges** | `gamification.js` (`BADGES`) |
+| | **Leaderboard** by points: all time and this week | `server/routes/leaderboard.js`, `#/leaderboard` |
+| | Points, level, streak and badges **update automatically** when a quiz is submitted | `/submit` returns them; the UI shows a level-up or badge modal |
+| **4. Back end, database & security** | Express + SQLite, with transactions for every points change | `server/` |
+| | Authentication, and access control for students and admins | `server/middleware.js` |
+| | Score calculation and reward allocation only on the server | `quizzes.js`, `rewards.js` |
+| | Invalid and duplicate requests refused with clear errors | `tests/validation.test.js` |
+| | Modular structure: one route file per area | `server/routes/` |
+| **5. UX & docs** | Works on phones and desktops: phone tab bar, stacked tables, bottom-sheet dialogs | `public/css/styles.css` |
+| | Clear feedback during the quiz: timer, progress bar, right/wrong with explanation, live score | `viewQuiz` |
+| | This README: technologies, setup, features, limitations, AI disclosure | |
+
+## Technologies
+
+| Layer | Choice | Why |
+|---|---|---|
+| Server | Node.js 18+, Express 4 | Small, well-known, easy to review |
+| Database | SQLite via better-sqlite3 | No setup; real SQL with transactions and constraints; one file |
+| Auth | bcryptjs, jsonwebtoken (7-day JWT) | Standard password hashing and stateless sessions |
+| Security | Helmet (CSP and headers), express-rate-limit on login and registration | Sensible defaults with little code |
+| Front end | Vanilla JavaScript single-page app, hash routing, no build step | Nothing to compile; the whole UI is two files |
+| Styling | Hand-written CSS with design tokens; Google Fonts (Anton, Caveat, PT Serif, Roboto) | Matches the NextGen flyer and punchng.com |
+| Tests | Node's built-in `node:test` and `fetch`, against an in-memory database | No test dependencies |
+
+## Setup
+
+Requires Node.js 18 or later.
+
+```bash
+git clone <your-repo-url> && cd punch-nextgen-quiz
+npm install
+cp .env.example .env        # set JWT_SECRET to a long random string
+npm start                   # http://localhost:3000
+```
+
+The database is created and seeded on first run. The seed includes 5 quizzes (60 questions), 6 rewards, a starter poll and four demo students, so the leaderboard isn't empty.
+
+**Test accounts (all fictitious):**
+
+| Account | Email | Password |
+|---|---|---|
+| Admin | admin@punchng.test | Admin@12345 |
+| Demo student | adaeze.okafor@demo.test | Demo@12345 |
+
+**Scripts:**
+
+| Command | What it does |
+|---|---|
+| `npm run dev` | Start with auto-restart on file changes |
+| `npm run seed` | Wipe all data and reseed |
+| `npm test` | Run the 27 API tests against an in-memory database |
+
+**Updating an older local database:** restarting adds any new tables and columns without losing data. To load the 12-question banks, run `npm run seed`; this wipes existing accounts and attempts.
+
+**`EADDRINUSE: address already in use :::3000`** means something else, often an earlier copy of this app, is using the port. Either stop it, or set `PORT=3030` in `.env`.
+
+```powershell
+Get-NetTCPConnection -LocalPort 3000 -State Listen | % { Get-Process -Id $_.OwningProcess }   # Windows
+Stop-Process -Id <id>
+```
+
+On macOS or Linux, run `lsof -i :3000`, then `kill <pid>`.
+
+## Features
+
+### Students
+
+| Page | What's there |
+|---|---|
+| Home `#/` (Learn) | Today's challenge with a countdown, all quizzes, the live poll, top students |
+| Daily challenge `#/challenge` (Play) | One quiz a day worth double points |
+| Desks `#/explore` (Explore) | Quizzes grouped by desk, with progress in each |
+| Leaderboard `#/leaderboard` (Belong) | Podium for the top 3, all-time or weekly ranking, your rank pinned at the bottom |
+| Dashboard `#/me` | XP and level bar, points, quizzes completed, badges, streak, rank, accuracy, recommended quiz, desk progress, points history |
+| Quiz `#/quiz/:id` | 10 timed questions, instant right/wrong with an explanation, live score, results with XP, level and a full review |
+| Contribute `#/contribute` | Suggest a question; an approved question earns 25 points |
+| Rewards `#/rewards` | Progress towards each reward, a confirm dialog, redemption codes |
+
+**Points:**
+
+| Action | Points |
+|---|---|
+| Sign up | 50 |
+| Correct answer | 10 to 12, depending on the quiz |
+| Correct answer in the daily challenge | 2× |
+| Perfect round | +20 |
+| Poll vote | 5 |
+| Approved question | 25 |
+
+Quiz points are paid once per quiz per day (West Africa Time); replays are practice.
+
+**Levels:** XP is lifetime points earned, so spending points never lowers a level.
+
+| Level | XP needed |
+|---|---|
+| Rookie | 0 |
+| Learner | 100 |
+| Explorer | 250 |
+| Insider | 500 |
+| Analyst | 1,000 |
+| Editor | 2,000 |
+| Legend | 4,000 |
+
+**Badges:**
+
+| Badge | How to earn it |
+|---|---|
+| First steps | Finish a quiz |
+| Perfect round | Get every answer in a quiz right |
+| Regular player | Finish 10 quizzes |
+| On a roll | Play 3 days in a row |
+| Week warrior | Play 7 days in a row |
+| Desk hopper | Finish a quiz from every desk |
+| Challenger | Complete a daily challenge |
+| Rising star | Earn 500 XP |
+| Headliner | Earn 1,000 XP |
+| Voice of the people | Vote in a poll |
+| Contributor | Have a question you wrote approved |
+| Treat yourself | Redeem a reward |
+
+### Admins (`#/admin`)
+
+- See platform stats.
+- Approve or reject student questions.
+- Create quizzes and add questions, with an optional https image link.
+- Hide or publish quizzes.
+- Run polls.
+- Set reward stock and see recent redemptions.
+
+## Engineering decisions
+
+- **The server is the only authority on anything that affects points.** The browser never receives a correct answer before the student has locked their own. Scores, points, levels and badges are all worked out on the server inside a database transaction.
+- **Lock, then reveal.** Instant feedback needed the answer revealed per question without letting anyone change it afterwards. `/answer` writes the choice to `attempt_answers` first, and the primary key `(attempt_id, question_id)` makes the lock permanent. At submit time, locked answers override anything the client sends.
+- **Two layers against duplicate rewards.**
+  1. An attempt can only move from `in_progress` once; a second submit gets `409`.
+  2. Points are paid only if no other attempt for that quiz has earned points the same WAT day.
+
+  Both checks run inside the submit transaction.
+- **Ledger plus balance.** Every point change goes through one `addPoints` helper that updates the balance and writes a `point_ledger` row, so balances can always be reconciled. Redemptions use conditional `UPDATE … WHERE stock > 0 AND points >= cost`, so stock can't go negative and points can't be double-spent.
+- **XP is separate from spendable points.** XP is `lifetime_points`, so redeeming a reward never costs a student their level or all-time rank.
+- **Badges are rules, not counters.** Each badge is a small function in `gamification.js` that checks the database. They're re-checked after every quiz, vote, redemption and approval and inserted with `INSERT OR IGNORE`, so adding a badge means writing one function.
+- **Validation at the edge, consistent errors.** Each route checks and trims its input. A shared `HttpError` and error handler return `{ error }` with the right status (400, 401, 403, 404, 409, 429), and unexpected errors never leak details.
+- **Modular routes.** One file per area in `server/routes/` (auth, me, quizzes, leaderboard, rewards, community, admin), sharing rules and helpers from `helpers.js`.
+- **Schema changes without a migration tool.** Tables use `CREATE TABLE IF NOT EXISTS`, and new columns are added on startup by a small `addColumn` check, so an existing database upgrades itself.
+
+## Integrity rules (enforced on the server)
+
+- Correct answers are never sent before an answer is locked.
+- Each attempt is tied to the question IDs it was given. Answers for other questions are refused (`/answer`) or ignored (`/submit`).
+- **Deadline:** questions × seconds per question + 5 seconds of network grace. Each locked answer extends it so the remaining questions keep their full time. A late submission is recorded but earns 0 points.
+- One submission per attempt. Points are paid once per quiz per day.
+- The daily challenge rotates by WAT date, and each attempt records whether it was a challenge when it started.
+- One vote per poll. At most 5 student questions waiting for review per student, and they go live only after an admin approves them.
+- Atomic redemptions and an audit ledger, as above.
+- **Also:**
+  - passwords hashed with bcrypt
+  - JWTs expire after 7 days, and login and registration are rate-limited
+  - Helmet headers with a strict script CSP
+  - input length limits, and HTML escaping of all user text in the UI
+  - images allowed only from `https:` sources
+
+## Architecture
+
+```
+server/
+  index.js            boot: seed on first run, listen
+  app.js              Express app: security headers, JSON, static files, error handler
+  db.js               SQLite schema and additive column migrations
+  middleware.js       JWT auth (required and optional), admin guard, HttpError, WAT day helpers
+  gamification.js     XP levels, streaks, badges, daily challenge, week boundaries
+  routes/
+    index.js          mounts each area under /api
+    helpers.js        RULES (point values and limits), addPoints, input parsing, shared queries
+    auth.js           register, login
+    me.js             profile, dashboard, history, redemptions, my submissions
+    quizzes.js        catalogue, start, lock answer, submit
+    leaderboard.js    all time and weekly
+    rewards.js        catalogue, redeem
+    community.js      polls, student question submissions
+    admin.js          stats, quizzes, questions, submissions review, polls, stock
+  seed.js, seedData.js
+public/
+  index.html          shell: masthead, nav, footer, phone tab bar, icon sprite
+  css/styles.css      design tokens, components, animations
+  js/api.js           fetch wrapper with token handling
+  js/app.js           hash-routed views
+tests/
+  helpers.js          in-memory DB + server per test file
+  api.test.js         features and rules (17 tests)
+  validation.test.js  invalid, unauthorised and duplicate requests (10 tests)
+```
+
+### Data model
+
+| Table | Holds |
+|---|---|
+| `users` | points balance, lifetime points (= XP), role |
+| `quizzes` | desk, timer, points per answer, questions per attempt, active flag |
+| `questions` | options as JSON, `answer_index` (server only), optional `image_url` |
+| `attempts` | issued question IDs, deadline, status, score, points, `challenge` flag |
+| `attempt_answers` | answers locked during play |
+| `rewards`, `redemptions` | catalogue and stock; unique codes |
+| `point_ledger` | every credit and debit |
+| `user_badges` | badge id and when it was earned |
+| `polls`, `poll_votes` | one vote per student per poll |
+| `question_submissions` | `pending`, `approved` or `rejected` |
+
+### API
+
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| POST | /api/auth/register | | Create account (+50 pts) |
+| POST | /api/auth/login | | Sign in |
+| GET | /api/me | student | Profile, stats, rank, level, streak |
+| GET | /api/me/dashboard | student | Everything the dashboard shows |
+| GET | /api/me/history | student | Attempts and points ledger |
+| GET | /api/me/redemptions | student | Your reward codes |
+| GET | /api/me/submissions | student | Your suggested questions and their status |
+| GET | /api/quizzes | | Live quizzes and today's challenge |
+| GET | /api/quizzes/played-today | student | Quizzes already rewarded today |
+| POST | /api/quizzes/:id/start | student | Start an attempt; returns 10 questions without answers |
+| POST | /api/attempts/:id/answer | student | Lock `{questionId, choice}`; returns right/wrong, answer, explanation |
+| POST | /api/attempts/:id/submit | student | Finish; returns score, points, review, level, streak, new badges |
+| GET | /api/leaderboard?period=week | optional | Top 10 all time (default) or this week, plus your rank |
+| GET | /api/rewards | | Catalogue |
+| POST | /api/rewards/:id/redeem | student | Redeem; returns code |
+| GET | /api/polls/current | optional | Live poll, results and your vote |
+| POST | /api/polls/:id/vote | student | Vote once (+5 pts) |
+| POST | /api/submissions | student | Suggest a question |
+| GET | /api/admin/stats | admin | Platform stats |
+| GET/POST | /api/admin/quizzes | admin | List or create quizzes |
+| PATCH | /api/admin/quizzes/:id | admin | Publish or hide |
+| GET/POST | /api/admin/quizzes/:id/questions | admin | List or add questions |
+| DELETE | /api/admin/questions/:id | admin | Remove a question |
+| PATCH | /api/admin/rewards/:id | admin | Set stock |
+| GET | /api/admin/submissions | admin | Questions waiting for review |
+| POST | /api/admin/submissions/:id/approve | admin | Publish (+25 pts to the student) |
+| POST | /api/admin/submissions/:id/reject | admin | Reject |
+| GET/POST | /api/admin/polls | admin | List polls, or publish one (closes the current poll) |
+| PATCH | /api/admin/polls/:id | admin | Close or reopen a poll |
+
+"optional" means the route works signed out and adds your own rank or vote when you're signed in. Errors are always `{ "error": "message" }`.
+
+## Testing
+
+`npm test` runs 27 integration tests. Each test file starts the real Express app on a random port with a fresh in-memory database.
+
+**Features and rules** (`tests/api.test.js`):
+- every quiz presents 10 four-option questions
+- answers never leak from `/start`
+- perfect-score bonus, and points once per day
+- a second submit gets `409`, and late submissions earn nothing
+- locked answers can't be changed and override the submitted answers
+- badges, the dashboard, the double-points challenge
+- polls, student submissions, the weekly leaderboard
+- atomic redemptions
+
+**Invalid requests** (`tests/validation.test.js`):
+- missing or forged tokens (`401`), and students on admin routes (`403`)
+- registration validation, and malformed JSON
+- other students' attempts (`404`)
+- answering after submitting (`409`), and junk answer payloads
+- bad poll votes and bad submissions, and the 5-pending limit (`429`)
+- admin input validation
+
+## Design
+
+The look comes from the PUNCH NextGen flyer, in PUNCH's own colours:
+- **Colours:** logo red `#FF0000` as the main colour, black and white, and the logo's stripe colours as small accents.
+- **Type:** Anton for poster headlines, Caveat for handwritten accents, PT Serif for story headlines, Roboto for interface text.
+- **Flyer touches:** slanted section tabs, a "Daily challenge" ribbon, and the Learn / Play / Explore / Belong icon row.
+- **Logo:** put the official logo at `public/assets/logo.png` and it replaces the text badge.
+
+The app is responsive down to 360 px, with keyboard focus always visible. Motion (rise-ins, right/wrong animations, count-ups, confetti, badge modals) is switched off for anyone who sets reduce-motion on their device.
+
+## Limitations and incomplete features
+
+- **Questions are sent when the attempt starts.** Correct answers stay on the server, but a determined student could read all 10 question texts at the start and look them up. Serving one question at a time would close this.
+- **The timer is the whole attempt plus an extension per answer, not a hard limit per question.** A student can take longer over the feedback screen without losing points for the remaining questions; the client enforces the per-question countdown.
+- **SQLite and a single server.** That's fine for a prototype, but a production deployment would use Postgres and versioned migrations. On free hosts without a persistent disk, the demo database resets on each deploy.
+- **No password reset, email verification or account deletion.** JWTs sit in `localStorage` with no refresh tokens or server-side logout.
+- **Admin tools are basic.** Questions can be added and deleted through the API, but there's no edit screen. Question images are links, not uploads.
+- **Reward fulfilment isn't implemented.** Codes are generated and stored, but nothing sends airtime or E-Paper access.
+- **Streaks and the weekly board use West Africa Time only.**
+- **No end-to-end tests in the repo.** The API is covered by integration tests. The UI was checked by clicking through every page, as a student and as an admin, in headless Chrome at desktop (1280px) and phone (390px) widths. That run had no JavaScript errors, but the script isn't part of `npm test`.
+- **The question bank is fixed.** There are 60 seeded questions in total. Admins and students can add more, but nothing pulls questions from PUNCH articles yet.
+
+## Use of AI tools
+
+> **Draft. Edit this so it accurately describes how you worked before you submit.**
+
+This project was built with **Claude Code** (Anthropic) as an AI pair programmer, which the brief allows with disclosure.
+
+- **AI-assisted:** generating most of the code (Express routes, SQLite schema, front-end views, CSS and animations), the test suites, the seed questions and the first drafts of this README.
+- **My contributions:** _[for example: setting the requirements and priorities; choosing the stack; deciding the product features (pillars, daily challenge, polls, student submissions) and the PUNCH/NextGen visual direction; reviewing every change; testing the app in the browser; reporting and directing fixes; checking quiz facts; deploying.]_
+- **Verification:** every server rule is covered by the automated tests above, and I've read through and can explain each module, in particular `server/routes/quizzes.js` (scoring and duplicate protection), `server/gamification.js` and `server/middleware.js`.
+
+## Deploying (Render, free tier)
+
+1. Push to GitHub.
+2. On render.com: New → Web Service → connect the repo.
+3. Build command `npm install`, start command `npm start`.
+4. Environment: `NODE_ENV=production`, `JWT_SECRET=<long random string>`, optionally `ADMIN_EMAIL` and `ADMIN_PASSWORD`.
+5. For data that survives redeploys, add a persistent disk mounted at `/var/data` and set `DB_PATH=/var/data/nextgen.db`. Without one, the app reseeds on each deploy, which is fine for a demo.
+
+Railway and Fly.io work the same way. Serverless hosts like Vercel aren't a good fit for SQLite.
+
+## With more time
+
+- Serve questions one at a time with a deadline per question.
+- Postgres with versioned migrations.
+- httpOnly cookie sessions with refresh tokens.
+- Password reset.
+- Admin screens for editing questions, with image uploads.
+- Question banks drawn from PUNCH articles.
+- Email delivery of reward codes.
+- Notifications when a submitted question is reviewed.
+- Playwright end-to-end tests.

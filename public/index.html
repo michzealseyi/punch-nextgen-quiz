@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>PUNCH NextGen Quiz &amp; Rewards</title>
+  <meta name="description" content="Learn, play, explore and belong: daily quizzes from the PUNCH desks, XP, badges, polls and rewards.">
+  <meta name="theme-color" content="#000000">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%23FF0000'/></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Anton&family=Caveat:wght@600;700&family=PT+Serif:ital,wght@0,400;0,700;1,400&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <!-- Icon sprite, referenced with <use href="#i-..."> -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-learn" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M6 11h4M8 9v4M15 12h.01M18 10h.01"/><path d="M17.3 5H6.7a4 4 0 0 0-4 3.6C2.6 9.4 2 14.5 2 16a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.4-1.4A2 2 0 0 1 9.8 16h4.4a2 2 0 0 1 1.4.6L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.5-.6-6.6-.7-7.3A4 4 0 0 0 17.3 5z"/></symbol>
+    <symbol id="i-explore" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M16.2 7.8l-2.1 6.3-6.3 2.1 2.1-6.3z"/></symbol>
+    <symbol id="i-belong" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/></symbol>
+    <symbol id="i-me" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
+  </svg>
+
+  <header class="masthead">
+    <div class="masthead__inner">
+      <a href="#/" class="brand" aria-label="PUNCH NextGen home">
+        <!-- Drop the official logo at public/assets/logo.png; the text badge shows until then -->
+        <img src="/assets/logo.png" alt="PUNCH" class="brand__logo" id="brandLogo" hidden>
+        <span class="brand__badge" id="brandText">PUNCH</span>
+        <span class="brand__word">next<b>GEN</b></span>
+        <span class="brand__tag">Tap in, level up</span>
+      </a>
+      <div class="masthead__side masthead__side--end" id="account"></div>
+    </div>
+    <nav class="nav" aria-label="Main">
+      <ul class="nav__list" id="nav">
+        <li><a href="#/" data-route="home">Quizzes</a></li>
+        <li><a href="#/challenge" data-route="challenge">Daily challenge</a></li>
+        <li><a href="#/explore" data-route="explore">Desks</a></li>
+        <li><a href="#/leaderboard" data-route="leaderboard">Leaderboard</a></li>
+        <li><a href="#/rewards" data-route="rewards">Rewards</a></li>
+        <li><a href="#/contribute" data-route="contribute">Contribute</a></li>
+        <li><a href="#/me" data-route="me">Dashboard</a></li>
+        <li class="admin-only" hidden><a href="#/admin" data-route="admin">Admin</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main id="main" class="page" tabindex="-1"></main>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <footer class="footer">
+    <ul class="pillars">
+      <li><a href="#/"><svg class="icon"><use href="#i-learn"/></svg><span>Learn</span></a></li>
+      <li><a href="#/challenge" class="pillars--play"><svg class="icon"><use href="#i-play"/></svg><span>Play</span></a></li>
+      <li><a href="#/explore" class="pillars--explore"><svg class="icon"><use href="#i-explore"/></svg><span>Explore</span></a></li>
+      <li><a href="#/leaderboard" class="pillars--belong"><svg class="icon"><use href="#i-belong"/></svg><span>Belong</span></a></li>
+    </ul>
+    <p class="footer__pitch">An interactive space that inspires young people to <b>explore</b>, <b>learn</b>, <b>compete</b> and <b>connect</b>.</p>
+    <div class="footer__small">
+      <p>Punch Nigeria Limited, KM 14 Lagos/Ibadan Expressway, Magboro, Ogun State</p>
+      <p>Points are awarded once per quiz per day. Rewards are subject to stock.</p>
+    </div>
+  </footer>
+
+  <!-- App-style tab bar on phones -->
+  <nav class="tabbar" aria-label="Quick links">
+    <a href="#/" data-route="home"><svg class="icon"><use href="#i-learn"/></svg><span>Learn</span></a>
+    <a href="#/challenge" data-route="challenge"><svg class="icon"><use href="#i-play"/></svg><span>Play</span></a>
+    <a href="#/explore" data-route="explore"><svg class="icon"><use href="#i-explore"/></svg><span>Explore</span></a>
+    <a href="#/leaderboard" data-route="leaderboard"><svg class="icon"><use href="#i-belong"/></svg><span>Belong</span></a>
+    <a href="#/me" data-route="me"><svg class="icon"><use href="#i-me"/></svg><span>Me</span></a>
+  </nav>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>

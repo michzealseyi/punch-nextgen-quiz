@@ -1,0 +1,17 @@
+# Render blueprint: New → Blueprint → pick this repo. Free tier; the SQLite file
+# lives on the instance, so the demo reseeds itself on every deploy or restart.
+services:
+  - type: web
+    name: punch-nextgen-quiz
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: 22.14.0
+      - key: JWT_SECRET
+        generateValue: true
