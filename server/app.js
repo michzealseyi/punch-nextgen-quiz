@@ -1,3 +1,4 @@
+const fs = require('fs');
 const path = require('path');
 const express = require('express');
 const helmet = require('helmet');
@@ -23,8 +24,14 @@ function createApp() {
   app.use('/api', routes);
   app.use('/api', (req, res) => res.status(404).json({ error: 'Endpoint not found.' }));
 
-  app.use(express.static(path.join(__dirname, '..', 'public')));
-  app.get('*', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'index.html')));
+  // The React app, built by `npm run build`. Every non-API path returns index.html so React Router can handle it.
+  const web = path.join(__dirname, '..', 'client', 'dist');
+  app.use(express.static(web));
+  app.get('*', (req, res) => {
+    const index = path.join(web, 'index.html');
+    if (fs.existsSync(index)) return res.sendFile(index);
+    res.status(503).type('text').send('The front end hasn’t been built yet. Run `npm run build`, or use `npm run dev` while developing.');
+  });
 
   // eslint-disable-next-line no-unused-vars
   app.use((err, req, res, next) => {

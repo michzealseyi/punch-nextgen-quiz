@@ -1,12 +1,13 @@
 {
   "name": "punch-nextgen-quiz",
-  "version": "1.0.0",
-  "description": "Mini PUNCH NextGen Quiz & Rewards Platform — full-stack assessment",
+  "version": "2.0.0",
+  "description": "Mini PUNCH NextGen Quiz & Rewards Platform: React front end, Node.js/Express API, SQLite",
   "main": "server/index.js",
   "type": "commonjs",
   "scripts": {
+    "dev": "concurrently -n api,web -c red,blue \"node --watch server/index.js\" \"vite\"",
+    "build": "vite build",
     "start": "node server/index.js",
-    "dev": "node --watch server/index.js",
     "seed": "node server/seed.js --reset",
     "test": "node --test tests/*.test.js"
   },
@@ -19,5 +20,13 @@
     "express-rate-limit": "^7.4.0",
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "concurrently": "^9.0.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.26.2",
+    "vite": "^5.4.8"
   }
 }

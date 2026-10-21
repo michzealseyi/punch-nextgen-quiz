@@ -2,6 +2,8 @@
 
 A full-stack prototype where students play timed quizzes from the PUNCH desks and see right or wrong after every answer. They earn points and XP, unlock badges, climb leaderboards and redeem points for rewards. It's built around the NextGen pillars: **Learn, Play, Explore, Belong**.
 
+**Stack:** React 18 (Vite) front end · Node.js + Express API · SQLite database.
+
 - **Live demo:** _add your deployed URL here_
 - **Walkthrough video:** _add your video link here_
 
@@ -11,24 +13,24 @@ Where each requirement in the brief is met:
 
 | Brief | How it's met | Where |
 |---|---|---|
-| **1. Registration & dashboard** | Register and log in (bcrypt + JWT) | `server/routes/auth.js`, `#/register`, `#/login` |
-| | Dashboard with the student's name, **total XP**, points to spend, **quizzes completed**, **badges earned**, streak, rank, accuracy | `server/routes/me.js` (`/me/dashboard`), `#/me` |
+| **1. Registration & dashboard** | Register and log in (bcrypt + JWT) | `server/routes/auth.js`, `client/src/pages/Auth.jsx` |
+| | Dashboard with the student's name, **total XP**, points to spend, **quizzes completed**, **badges earned**, streak, rank, accuracy | `server/routes/me.js` (`/me/dashboard`), `client/src/pages/Dashboard.jsx` |
 | **2. Quiz system** | 5 quizzes, each with a 12-question bank; every attempt **presents 10 multiple-choice questions** | `server/seedData.js` |
-| | Select an answer (click or A–D), lock it, see feedback, submit | `public/js/app.js` (`viewQuiz`) |
+| | Select an answer (click or A–D), lock it, see feedback, submit | `client/src/pages/Play.jsx` |
 | | **Scores calculated on the server** and **results shown** with a full review | `server/routes/quizzes.js` (`/submit`) |
 | | **Attempts and answers saved** | `attempts`, `attempt_answers` tables |
 | | **Repeat submissions can't earn duplicate rewards**: an attempt can only be submitted once (`409`), and quiz points are paid once per quiz per day | `quizzes.js`, tests |
 | **3. Gamification** | Points and XP, 7 levels | `server/gamification.js` |
 | | **12 badges** | `gamification.js` (`BADGES`) |
-| | **Leaderboard** by points: all time and this week | `server/routes/leaderboard.js`, `#/leaderboard` |
+| | **Leaderboard** by points: all time and this week | `server/routes/leaderboard.js`, `client/src/pages/Leaderboard.jsx` |
 | | Points, level, streak and badges **update automatically** when a quiz is submitted | `/submit` returns them; the UI shows a level-up or badge modal |
 | **4. Back end, database & security** | Express + SQLite, with transactions for every points change | `server/` |
 | | Authentication, and access control for students and admins | `server/middleware.js` |
 | | Score calculation and reward allocation only on the server | `quizzes.js`, `rewards.js` |
 | | Invalid and duplicate requests refused with clear errors | `tests/validation.test.js` |
 | | Modular structure: one route file per area | `server/routes/` |
-| **5. UX & docs** | Works on phones and desktops: phone tab bar, stacked tables, bottom-sheet dialogs | `public/css/styles.css` |
-| | Clear feedback during the quiz: timer, progress bar, right/wrong with explanation, live score | `viewQuiz` |
+| **5. UX & docs** | Works on phones and desktops: phone tab bar, stacked tables, bottom-sheet dialogs | `client/src/styles.css`, `client/src/components/Layout.jsx` |
+| | Clear feedback during the quiz: timer, progress bar, right/wrong with explanation, live score | `Play.jsx` (`Question` component) |
 | | This README: technologies, setup, features, limitations, AI disclosure | |
 
 ## Technologies
@@ -39,7 +41,7 @@ Where each requirement in the brief is met:
 | Database | SQLite via better-sqlite3 | No setup; real SQL with transactions and constraints; one file |
 | Auth | bcryptjs, jsonwebtoken (7-day JWT) | Standard password hashing and stateless sessions |
 | Security | Helmet (CSP and headers), express-rate-limit on login and registration | Sensible defaults with little code |
-| Front end | Vanilla JavaScript single-page app, hash routing, no build step | Nothing to compile; the whole UI is two files |
+| Front end | React 18 with Vite, React Router 6, Context for auth and UI state | Component-based, widely used, fast dev server and a small production build |
 | Styling | Hand-written CSS with design tokens; Google Fonts (Anton, Caveat, PT Serif, Roboto) | Matches the NextGen flyer and punchng.com |
 | Tests | Node's built-in `node:test` and `fetch`, against an in-memory database | No test dependencies |
 
@@ -51,8 +53,11 @@ Requires Node.js 18 or later.
 git clone <your-repo-url> && cd punch-nextgen-quiz
 npm install
 cp .env.example .env        # set JWT_SECRET to a long random string
-npm start                   # http://localhost:3000
+npm run build               # compiles the React app into client/dist
+npm start                   # http://localhost:3000 (API + built React app)
 ```
+
+For development, `npm run dev` runs the API on :3000 and the React dev server on **http://localhost:5173** (hot reload; `/api` calls are forwarded to :3000).
 
 The database is created and seeded on first run. The seed includes 5 quizzes (60 questions), 6 rewards, a starter poll and four demo students, so the leaderboard isn't empty.
 
@@ -67,7 +72,9 @@ The database is created and seeded on first run. The seed includes 5 quizzes (60
 
 | Command | What it does |
 |---|---|
-| `npm run dev` | Start with auto-restart on file changes |
+| `npm run dev` | API (auto-restart) + React dev server with hot reload, at http://localhost:5173 |
+| `npm run build` | Build the React app into `client/dist` for `npm start` |
+| `npm start` | Serve the API and the built React app on port 3000 |
 | `npm run seed` | Wipe all data and reseed |
 | `npm test` | Run the 27 API tests against an in-memory database |
 
@@ -88,14 +95,14 @@ On macOS or Linux, run `lsof -i :3000`, then `kill <pid>`.
 
 | Page | What's there |
 |---|---|
-| Home `#/` (Learn) | Today's challenge with a countdown, all quizzes, the live poll, top students |
-| Daily challenge `#/challenge` (Play) | One quiz a day worth double points |
-| Desks `#/explore` (Explore) | Quizzes grouped by desk, with progress in each |
-| Leaderboard `#/leaderboard` (Belong) | Podium for the top 3, all-time or weekly ranking, your rank pinned at the bottom |
-| Dashboard `#/me` | XP and level bar, points, quizzes completed, badges, streak, rank, accuracy, recommended quiz, desk progress, points history |
-| Quiz `#/quiz/:id` | 10 timed questions, instant right/wrong with an explanation, live score, results with XP, level and a full review |
-| Contribute `#/contribute` | Suggest a question; an approved question earns 25 points |
-| Rewards `#/rewards` | Progress towards each reward, a confirm dialog, redemption codes |
+| Home `/` (Learn) | Today's challenge with a countdown, all quizzes, the live poll, top students |
+| Daily challenge `/challenge` (Play) | One quiz a day worth double points |
+| Desks `/explore` (Explore) | Quizzes grouped by desk, with progress in each |
+| Leaderboard `/leaderboard`, `/leaderboard/week` (Belong) | Podium for the top 3, all-time or weekly ranking, your rank pinned at the bottom |
+| Dashboard `/me` | XP and level bar, points, quizzes completed, badges, streak, rank, accuracy, recommended quiz, desk progress, points history |
+| Quiz `/quiz/:id` | 10 timed questions, instant right/wrong with an explanation, live score, results with XP, level and a full review |
+| Contribute `/contribute` | Suggest a question; an approved question earns 25 points |
+| Rewards `/rewards` | Progress towards each reward, a confirm dialog, redemption codes |
 
 **Points:**
 
@@ -139,7 +146,7 @@ Quiz points are paid once per quiz per day (West Africa Time); replays are pract
 | Contributor | Have a question you wrote approved |
 | Treat yourself | Redeem a reward |
 
-### Admins (`#/admin`)
+### Admins (`/admin`)
 
 - See platform stats.
 - Approve or reject student questions.
@@ -162,6 +169,8 @@ Quiz points are paid once per quiz per day (West Africa Time); replays are pract
 - **Badges are rules, not counters.** Each badge is a small function in `gamification.js` that checks the database. They're re-checked after every quiz, vote, redemption and approval and inserted with `INSERT OR IGNORE`, so adding a badge means writing one function.
 - **Validation at the edge, consistent errors.** Each route checks and trims its input. A shared `HttpError` and error handler return `{ error }` with the right status (400, 401, 403, 404, 409, 429), and unexpected errors never leak details.
 - **Modular routes.** One file per area in `server/routes/` (auth, me, quizzes, leaderboard, rewards, community, admin), sharing rules and helpers from `helpers.js`.
+- **React structure.** Pages in `client/src/pages`, shared pieces in `components/`, and two contexts: `AuthContext` (the signed-in student, level, streak, quizzes rewarded today) and `UiContext` (toasts, and a promise-based `modal()` built on the native `<dialog>`). A small `useApi` hook loads page data. The quiz player is a `Question` component keyed by question number, so each question's timer, lock and feedback state starts fresh.
+- **One deploy.** Vite builds the React app into `client/dist` and Express serves it, with every non-API path returning `index.html` for React Router. So it's one service and one URL, with no CORS to configure.
 - **Schema changes without a migration tool.** Tables use `CREATE TABLE IF NOT EXISTS`, and new columns are added on startup by a small `addColumn` check, so an existing database upgrades itself.
 
 ## Integrity rules (enforced on the server)
@@ -177,7 +186,7 @@ Quiz points are paid once per quiz per day (West Africa Time); replays are pract
   - passwords hashed with bcrypt
   - JWTs expire after 7 days, and login and registration are rate-limited
   - Helmet headers with a strict script CSP
-  - input length limits, and HTML escaping of all user text in the UI
+  - input length limits; React escapes all rendered text, and the app never uses `dangerouslySetInnerHTML`
   - images allowed only from `https:` sources
 
 ## Architecture
@@ -200,11 +209,19 @@ server/
     community.js      polls, student question submissions
     admin.js          stats, quizzes, questions, submissions review, polls, stock
   seed.js, seedData.js
-public/
-  index.html          shell: masthead, nav, footer, phone tab bar, icon sprite
-  css/styles.css      design tokens, components, animations
-  js/api.js           fetch wrapper with token handling
-  js/app.js           hash-routed views
+client/                React front end (Vite)
+  index.html          HTML shell and fonts
+  src/
+    main.jsx          routes (React Router) and providers
+    api.js            fetch wrapper with token handling
+    useApi.js         data-loading hook for pages
+    utils.js          formatting, confetti, WAT countdown
+    styles.css        design tokens, components, animations
+    context/          AuthContext (student state), UiContext (toast, modal, celebrations)
+    components/       Layout, PollCard, QuizCards, Board, QuestionFields, RequireAuth, common UI
+    pages/            Home, Challenge, Explore, Auth, Play, Leaderboard, Rewards, Dashboard, Contribute, Admin
+  public/assets/      put logo.png here
+vite.config.mjs       Vite config: root client/, /api proxy for dev
 tests/
   helpers.js          in-memory DB + server per test file
   api.test.js         features and rules (17 tests)
@@ -290,7 +307,7 @@ The look comes from the PUNCH NextGen flyer, in PUNCH's own colours:
 - **Colours:** logo red `#FF0000` as the main colour, black and white, and the logo's stripe colours as small accents.
 - **Type:** Anton for poster headlines, Caveat for handwritten accents, PT Serif for story headlines, Roboto for interface text.
 - **Flyer touches:** slanted section tabs, a "Daily challenge" ribbon, and the Learn / Play / Explore / Belong icon row.
-- **Logo:** put the official logo at `public/assets/logo.png` and it replaces the text badge.
+- **Logo:** put the official logo at `client/public/assets/logo.png` and it replaces the text badge.
 
 The app is responsive down to 360 px, with keyboard focus always visible. Motion (rise-ins, right/wrong animations, count-ups, confetti, badge modals) is switched off for anyone who sets reduce-motion on their device.
 
@@ -303,7 +320,8 @@ The app is responsive down to 360 px, with keyboard focus always visible. Motion
 - **Admin tools are basic.** Questions can be added and deleted through the API, but there's no edit screen. Question images are links, not uploads.
 - **Reward fulfilment isn't implemented.** Codes are generated and stored, but nothing sends airtime or E-Paper access.
 - **Streaks and the weekly board use West Africa Time only.**
-- **No end-to-end tests in the repo.** The API is covered by integration tests. The UI was checked by clicking through every page, as a student and as an admin, in headless Chrome at desktop (1280px) and phone (390px) widths. That run had no JavaScript errors, but the script isn't part of `npm test`.
+- **No end-to-end tests in the repo.** The API is covered by integration tests. The React UI was checked by clicking through every page, as a student and as an admin, in headless Chrome at desktop (1280px) and phone (390px) widths. That run had no JavaScript errors, but the script isn't part of `npm test`.
+- **No front-end unit tests** (for example React Testing Library).
 - **The question bank is fixed.** There are 60 seeded questions in total. Admins and students can add more, but nothing pulls questions from PUNCH articles yet.
 
 ## Use of AI tools
@@ -312,7 +330,7 @@ The app is responsive down to 360 px, with keyboard focus always visible. Motion
 
 This project was built with **Claude Code** (Anthropic) as an AI pair programmer, which the brief allows with disclosure.
 
-- **AI-assisted:** generating most of the code (Express routes, SQLite schema, front-end views, CSS and animations), the test suites, the seed questions and the first drafts of this README.
+- **AI-assisted:** generating most of the code (Express routes, SQLite schema, React components, CSS and animations), the test suites, the seed questions and the first drafts of this README.
 - **My contributions:** _[for example: setting the requirements and priorities; choosing the stack; deciding the product features (pillars, daily challenge, polls, student submissions) and the PUNCH/NextGen visual direction; reviewing every change; testing the app in the browser; reporting and directing fixes; checking quiz facts; deploying.]_
 - **Verification:** every server rule is covered by the automated tests above, and I've read through and can explain each module, in particular `server/routes/quizzes.js` (scoring and duplicate protection), `server/gamification.js` and `server/middleware.js`.
 
@@ -320,7 +338,7 @@ This project was built with **Claude Code** (Anthropic) as an AI pair programmer
 
 1. Push to GitHub.
 2. On render.com: New → Web Service → connect the repo.
-3. Build command `npm install`, start command `npm start`.
+3. Build command `npm install --include=dev && npm run build`, start command `npm start`. The repo's `render.yaml` sets this up for you (New → Blueprint).
 4. Environment: `NODE_ENV=production`, `JWT_SECRET=<long random string>`, optionally `ADMIN_EMAIL` and `ADMIN_PASSWORD`.
 5. For data that survives redeploys, add a persistent disk mounted at `/var/data` and set `DB_PATH=/var/data/nextgen.db`. Without one, the app reseeds on each deploy, which is fine for a demo.
 
@@ -336,4 +354,4 @@ Railway and Fly.io work the same way. Serverless hosts like Vercel aren't a good
 - Question banks drawn from PUNCH articles.
 - Email delivery of reward codes.
 - Notifications when a submitted question is reviewed.
-- Playwright end-to-end tests.
+- Playwright end-to-end tests and React Testing Library component tests.

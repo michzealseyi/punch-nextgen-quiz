@@ -3,7 +3,7 @@
 The brief allows **at most five minutes** and asks you to **explain your personal contributions**. Timings add up to 4:45, leaving a little slack. Practise once with a timer.
 
 **Before recording:**
-- Run `npm run seed`, then `npm start`, or use the live demo.
+- Run `npm run seed`, `npm run build`, then `npm start`, or use the live demo.
 - Open two windows: one signed out, one signed in as admin (admin@punchng.test / Admin@12345).
 - Open DevTools → Network in the student window.
 - Close other tabs and notifications.
@@ -12,7 +12,7 @@ The brief allows **at most five minutes** and asks you to **explain your persona
 
 **1. Intro — 0:00 to 0:20**
 - "I'm [name]. This is a mini PUNCH NextGen quiz and rewards platform."
-- "It uses Node, Express, SQLite and a vanilla JavaScript front end, with no build step."
+- "It's a React front end built with Vite, and a Node.js and Express API with a SQLite database."
 - "I'll go through the five tasks in order, then explain how I built it."
 
 **2. Task 1: registration and dashboard — 0:20 to 1:00**
@@ -38,7 +38,8 @@ The brief allows **at most five minutes** and asks you to **explain your persona
 - "XP and badges update automatically when you submit. There are 12 badges, defined as rules in `gamification.js`."
 
 **6. Code and tests — 3:30 to 4:15**
-- Show the `server/routes/` folder: "One file per area."
+- Show `client/src/pages/Play.jsx`: "Each question is a component; it locks the answer on the server, then shows the feedback."
+- Show the `server/routes/` folder: "One file per area on the API."
 - In `quizzes.js`, the submit transaction: locked answers, the once-per-day check, `addPoints`.
 - Run `npm test`: "27 tests, including a whole file for invalid and duplicate requests."
 
