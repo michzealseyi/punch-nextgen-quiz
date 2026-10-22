@@ -4,8 +4,8 @@ A full-stack prototype where students play timed quizzes from the PUNCH desks an
 
 **Stack:** React 18 (Vite) front end · Node.js + Express API · SQLite database.
 
-- **Live demo:** _add your deployed URL here_
-- **Walkthrough video:** _add your video link here_
+- **Live demo:** https://punch-nextgen-quiz.onrender.com (free hosting: the first visit after a quiet spell can take 30–60 seconds to wake up)
+- **Walkthrough video:** https://youtu.be/4vL77_LIYSM (4:57)
 
 ## Assessment checklist
 
@@ -326,13 +326,17 @@ The app is responsive down to 360 px, with keyboard focus always visible. Motion
 
 ## Use of AI tools
 
-> **Draft. Edit this so it accurately describes how you worked before you submit.**
+This project was built with **Claude Code** (Anthropic) as an AI assistant, which the brief allows with disclosure.
 
-This project was built with **Claude Code** (Anthropic) as an AI pair programmer, which the brief allows with disclosure.
+I treated the AI like a fast junior developer that I was directing. I owned the requirements and the decisions:
+- what to build from the brief;
+- the design direction, from the NextGen flyer and my own previous app;
+- keeping PUNCH's brand;
+- switching the front end to React, because it's what I work in.
 
-- **AI-assisted:** generating most of the code (Express routes, SQLite schema, React components, CSS and animations), the test suites, the seed questions and the first drafts of this README.
-- **My contributions:** _[for example: setting the requirements and priorities; choosing the stack; deciding the product features (pillars, daily challenge, polls, student submissions) and the PUNCH/NextGen visual direction; reviewing every change; testing the app in the browser; reporting and directing fixes; checking quiz facts; deploying.]_
-- **Verification:** every server rule is covered by the automated tests above, and I've read through and can explain each module, in particular `server/routes/quizzes.js` (scoring and duplicate protection), `server/gamification.js` and `server/middleware.js`.
+I guided the AI as it wrote the code. That meant setting the structure and the order of work, reviewing each change, and testing it in the browser. I sent back problems and corrections, and checked everything against each task in the brief.
+
+I've gone through the codebase module by module, so I can explain any part of it, for example how duplicate rewards are prevented.
 
 ## Deploying (Render, free tier)
 
