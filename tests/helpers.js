@@ -32,4 +32,18 @@ const register = async (email) => (await call('/auth/register', { method: 'POST'
 const adminToken = async () => (await call('/auth/login', { method: 'POST', body: { email: 'admin@punchng.test', password: 'Admin@12345' } })).data.token;
 const answerOf = (qid) => db.prepare('SELECT answer_index a FROM questions WHERE id=?').get(qid).a;
 
-module.exports = { call, register, adminToken, answerOf, db };
+// Plays a whole attempt the way the browser does: answer, next, answer… then returns what was shown.
+// pick(question, correctIndex) chooses the answer to send; by default it's the right one.
+async function play(token, quizId, pick = (q, correct) => correct) {
+  const s = (await call(`/quizzes/${quizId}/start`, { method: 'POST', token })).data;
+  const seen = [s.question];
+  for (let i = 0; i < s.total; i++) {
+    const q = seen[i];
+    await call(`/attempts/${s.attemptId}/answer`, { method: 'POST', token, body: { questionId: q.id, choice: pick(q, answerOf(q.id)) } });
+    if (i < s.total - 1) seen.push((await call(`/attempts/${s.attemptId}/next`, { method: 'POST', token })).data.question);
+  }
+  return { start: s, seen };
+}
+const submit = (token, attemptId, body = {}) => call(`/attempts/${attemptId}/submit`, { method: 'POST', token, body });
+
+module.exports = { call, register, adminToken, answerOf, play, submit, db };

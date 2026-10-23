@@ -16,7 +16,7 @@ Where each requirement in the brief is met:
 | **1. Registration & dashboard** | Register and log in (bcrypt + JWT) | `server/routes/auth.js`, `client/src/pages/Auth.jsx` |
 | | Dashboard with the student's name, **total XP**, points to spend, **quizzes completed**, **badges earned**, streak, rank, accuracy | `server/routes/me.js` (`/me/dashboard`), `client/src/pages/Dashboard.jsx` |
 | **2. Quiz system** | 5 quizzes, each with a 12-question bank; every attempt **presents 10 multiple-choice questions** | `server/seedData.js` |
-| | Select an answer (click or A–D), lock it, see feedback, submit | `client/src/pages/Play.jsx` |
+| | Questions are released **one at a time** by the server; select an answer (click or A–D), lock it, see feedback, then fetch the next | `server/routes/quizzes.js`, `client/src/pages/Play.jsx` |
 | | **Scores calculated on the server** and **results shown** with a full review | `server/routes/quizzes.js` (`/submit`) |
 | | **Attempts and answers saved** | `attempts`, `attempt_answers` tables |
 | | **Repeat submissions can't earn duplicate rewards**: an attempt can only be submitted once (`409`), and quiz points are paid once per quiz per day | `quizzes.js`, tests |
@@ -76,7 +76,7 @@ The database is created and seeded on first run. The seed includes 5 quizzes (60
 | `npm run build` | Build the React app into `client/dist` for `npm start` |
 | `npm start` | Serve the API and the built React app on port 3000 |
 | `npm run seed` | Wipe all data and reseed |
-| `npm test` | Run the 27 API tests against an in-memory database |
+| `npm test` | Run the 31 API tests against an in-memory database |
 
 **Updating an older local database:** restarting adds any new tables and columns without losing data. To load the 12-question banks, run `npm run seed`; this wipes existing accounts and attempts.
 
@@ -158,6 +158,7 @@ Quiz points are paid once per quiz per day (West Africa Time); replays are pract
 ## Engineering decisions
 
 - **The server is the only authority on anything that affects points.** The browser never receives a correct answer before the student has locked their own. Scores, points, levels and badges are all worked out on the server inside a database transaction.
+- **One question at a time.** The browser only ever holds the question being answered. `/start` returns question 1; `/next` releases the following question only after the current one is locked, and starts that question's timer on the server. Even with DevTools open, a student can't read ahead and look answers up.
 - **Lock, then reveal.** Instant feedback needed the answer revealed per question without letting anyone change it afterwards. `/answer` writes the choice to `attempt_answers` first, and the primary key `(attempt_id, question_id)` makes the lock permanent. At submit time, locked answers override anything the client sends.
 - **Two layers against duplicate rewards.**
   1. An attempt can only move from `in_progress` once; a second submit gets `409`.
@@ -175,9 +176,11 @@ Quiz points are paid once per quiz per day (West Africa Time); replays are pract
 
 ## Integrity rules (enforced on the server)
 
-- Correct answers are never sent before an answer is locked.
-- Each attempt is tied to the question IDs it was given. Answers for other questions are refused (`/answer`) or ignored (`/submit`).
-- **Deadline:** questions × seconds per question + 5 seconds of network grace. Each locked answer extends it so the remaining questions keep their full time. A late submission is recorded but earns 0 points.
+- Questions are released one at a time, and correct answers are never sent before an answer is locked.
+- Only the question currently showing can be answered (`409` otherwise), and the next is released only after it's answered.
+- **A timer per question, kept by the server:** an answer that arrives after that question's seconds (plus 5 seconds of network grace) is recorded as "no answer".
+- Each attempt is tied to the question IDs it was given; answers for other questions are refused. The score is calculated only from answers locked during play, and anything sent at submit time is ignored.
+- An abandoned attempt expires after a generous overall limit; submitting after that earns 0 points.
 - One submission per attempt. Points are paid once per quiz per day.
 - The daily challenge rotates by WAT date, and each attempt records whether it was a challenge when it started.
 - One vote per poll. At most 5 student questions waiting for review per student, and they go live only after an admin approves them.
@@ -224,7 +227,7 @@ client/                React front end (Vite)
 vite.config.mjs       Vite config: root client/, /api proxy for dev
 tests/
   helpers.js          in-memory DB + server per test file
-  api.test.js         features and rules (17 tests)
+  api.test.js         features and rules (21 tests)
   validation.test.js  invalid, unauthorised and duplicate requests (10 tests)
 ```
 
@@ -256,8 +259,9 @@ tests/
 | GET | /api/me/submissions | student | Your suggested questions and their status |
 | GET | /api/quizzes | | Live quizzes and today's challenge |
 | GET | /api/quizzes/played-today | student | Quizzes already rewarded today |
-| POST | /api/quizzes/:id/start | student | Start an attempt; returns 10 questions without answers |
-| POST | /api/attempts/:id/answer | student | Lock `{questionId, choice}`; returns right/wrong, answer, explanation |
+| POST | /api/quizzes/:id/start | student | Start an attempt; returns only the first question (no answer) and the total |
+| POST | /api/attempts/:id/answer | student | Lock `{questionId, choice}` for the current question; returns right/wrong, answer, explanation |
+| POST | /api/attempts/:id/next | student | Release the next question once the current one is answered |
 | POST | /api/attempts/:id/submit | student | Finish; returns score, points, review, level, streak, new badges |
 | GET | /api/leaderboard?period=week | optional | Top 10 all time (default) or this week, plus your rank |
 | GET | /api/rewards | | Catalogue |
@@ -281,14 +285,14 @@ tests/
 
 ## Testing
 
-`npm test` runs 27 integration tests. Each test file starts the real Express app on a random port with a fresh in-memory database.
+`npm test` runs 31 integration tests. Each test file starts the real Express app on a random port with a fresh in-memory database.
 
 **Features and rules** (`tests/api.test.js`):
 - every quiz presents 10 four-option questions
-- answers never leak from `/start`
+- `/start` sends only the first question and never an answer; questions can't be answered early, skipped, or after their time
 - perfect-score bonus, and points once per day
 - a second submit gets `409`, and late submissions earn nothing
-- locked answers can't be changed and override the submitted answers
+- locked answers can't be changed, and only locked answers are scored
 - badges, the dashboard, the double-points challenge
 - polls, student submissions, the weekly leaderboard
 - atomic redemptions
@@ -313,8 +317,8 @@ The app is responsive down to 360 px, with keyboard focus always visible. Motion
 
 ## Limitations and incomplete features
 
-- **Questions are sent when the attempt starts.** Correct answers stay on the server, but a determined student could read all 10 question texts at the start and look them up. Serving one question at a time would close this.
-- **The timer is the whole attempt plus an extension per answer, not a hard limit per question.** A student can take longer over the feedback screen without losing points for the remaining questions; the client enforces the per-question countdown.
+- **A student can still try to look up the one question on screen** within its 15–20 second timer. That's inherent to any timed online quiz; the per-question timer is the defence.
+- **Seeing your own password in DevTools is expected.** Your browser shows what you typed. Over the network it's protected by HTTPS, it's stored as a bcrypt hash, and login is rate-limited. Encrypting payloads in the browser wouldn't add protection, because the key would have to ship to the browser too.
 - **SQLite and a single server.** That's fine for a prototype, but a production deployment would use Postgres and versioned migrations. On free hosts without a persistent disk, the demo database resets on each deploy.
 - **No password reset, email verification or account deletion.** JWTs sit in `localStorage` with no refresh tokens or server-side logout.
 - **Admin tools are basic.** Questions can be added and deleted through the API, but there's no edit screen. Question images are links, not uploads.
@@ -350,7 +354,6 @@ Railway and Fly.io work the same way. Serverless hosts like Vercel aren't a good
 
 ## With more time
 
-- Serve questions one at a time with a deadline per question.
 - Postgres with versioned migrations.
 - httpOnly cookie sessions with refresh tokens.
 - Password reset.

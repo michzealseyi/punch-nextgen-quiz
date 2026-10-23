@@ -1,4 +1,5 @@
-// Quiz catalogue and the play loop: start an attempt, lock answers one by one, submit
+// Quiz catalogue and the play loop. Questions are released one at a time:
+// start (question 1) → answer (lock + feedback) → next (question 2) → … → submit.
 const express = require('express');
 const db = require('../db');
 const { requireAuth, wrap, HttpError, watDayBounds } = require('../middleware');
@@ -8,6 +9,13 @@ const { RULES, shuffle, balanceOf, addPoints, listQuizzes, quizIdsPlayedToday } 
 const quizzes = express.Router();
 const attempts = express.Router();
 attempts.use(requireAuth);
+
+// Only what the student needs to see: never the answer
+function publicQuestion(id) {
+  const q = db.prepare('SELECT id, text, options, image_url FROM questions WHERE id=?').get(id);
+  if (!q) throw new HttpError(404, 'That question has been removed.');
+  return { id: q.id, text: q.text, options: JSON.parse(q.options), imageUrl: q.image_url || null };
+}
 
 quizzes.get('/', wrap((req, res) => {
   res.json({ quizzes: listQuizzes(), challengeId: challengeQuizId(), challengeMultiplier: RULES.CHALLENGE_MULTIPLIER });
@@ -22,28 +30,30 @@ quizzes.post('/:id/start', requireAuth, wrap((req, res) => {
   const quiz = db.prepare('SELECT * FROM quizzes WHERE id=? AND active=1').get(req.params.id);
   if (!quiz) throw new HttpError(404, 'This quiz isn’t available.');
 
-  const pool = db.prepare('SELECT id, text, options, image_url FROM questions WHERE quiz_id=?').all(quiz.id);
+  const pool = db.prepare('SELECT id FROM questions WHERE quiz_id=?').all(quiz.id);
   if (!pool.length) throw new HttpError(409, 'This quiz has no questions yet.');
-  const picked = shuffle(pool).slice(0, quiz.questions_per_attempt);
+  const picked = shuffle(pool).slice(0, quiz.questions_per_attempt).map((p) => p.id);
 
   const now = Date.now();
-  const deadline = now + picked.length * quiz.seconds_per_question * 1000 + RULES.NETWORK_GRACE_MS;
+  // Generous cap so an abandoned attempt can't be finished days later; each question has its own timer too
+  const deadline = now + picked.length * (quiz.seconds_per_question * 1000 + RULES.IDLE_ALLOWANCE_MS);
   const challenge = quiz.id === challengeQuizId(now) ? 1 : 0;
 
   // Abandon any open attempt for this quiz so only one can be live
   db.prepare(`UPDATE attempts SET status='expired', finished_at=? WHERE user_id=? AND quiz_id=? AND status='in_progress'`)
     .run(now, req.user.id, quiz.id);
-  const attemptId = db.prepare(`INSERT INTO attempts (user_id, quiz_id, question_ids, total, started_at, deadline_at, challenge)
-                                VALUES (?,?,?,?,?,?,?)`)
-    .run(req.user.id, quiz.id, JSON.stringify(picked.map((p) => p.id)), picked.length, now, deadline, challenge).lastInsertRowid;
+  const attemptId = db.prepare(`INSERT INTO attempts (user_id, quiz_id, question_ids, total, started_at, deadline_at, challenge, current_index, served_at)
+                                VALUES (?,?,?,?,?,?,?,0,?)`)
+    .run(req.user.id, quiz.id, JSON.stringify(picked), picked.length, now, deadline, challenge, now).lastInsertRowid;
 
   res.status(201).json({
     attemptId,
     quiz: { id: quiz.id, title: quiz.title, category: quiz.category, secondsPerQuestion: quiz.seconds_per_question,
       pointsPerCorrect: quiz.points_per_correct * (challenge ? RULES.CHALLENGE_MULTIPLIER : 1), challenge: !!challenge },
-    deadline,
-    // answer_index is deliberately excluded
-    questions: picked.map((p) => ({ id: p.id, text: p.text, options: JSON.parse(p.options), imageUrl: p.image_url || null })),
+    total: picked.length,
+    index: 0,
+    // Only the first question; the rest are released one by one through /next
+    question: publicQuestion(picked[0]),
   });
 }));
 
@@ -54,8 +64,10 @@ function ownAttempt(id, userId) {
   return attempt;
 }
 
-// Locks one answer and reveals whether it was right. A locked answer can't be changed,
-// so revealing it gives nothing away about the questions still to come.
+const isLocked = (attemptId, questionId) => !!db.prepare('SELECT 1 FROM attempt_answers WHERE attempt_id=? AND question_id=?').get(attemptId, questionId);
+
+// Locks one answer and reveals whether it was right. Only the question currently showing can be
+// answered, and only within its timer; a late answer is recorded as "no answer".
 attempts.post('/:id/answer', wrap((req, res) => {
   const out = db.transaction(() => {
     const attempt = ownAttempt(req.params.id, req.user.id);
@@ -65,36 +77,45 @@ attempts.post('/:id/answer', wrap((req, res) => {
     const ids = JSON.parse(attempt.question_ids);
     const qid = Number(req.body.questionId);
     if (!ids.includes(qid)) throw new HttpError(400, 'That question isn’t part of this quiz.');
+    if (qid !== ids[attempt.current_index]) throw new HttpError(409, 'That isn’t the question being shown.');
     const q = db.prepare('SELECT answer_index, explanation FROM questions WHERE id=?').get(qid);
     if (!q) throw new HttpError(404, 'That question has been removed.');
 
+    const secs = db.prepare('SELECT seconds_per_question s FROM quizzes WHERE id=?').get(attempt.quiz_id).s;
+    const late = now > attempt.served_at + secs * 1000 + RULES.NETWORK_GRACE_MS;
     const c = req.body.choice;
-    const choice = Number.isInteger(c) && c >= 0 && c <= 3 ? c : null;
+    const choice = !late && Number.isInteger(c) && c >= 0 && c <= 3 ? c : null;
+
     const r = db.prepare('INSERT OR IGNORE INTO attempt_answers (attempt_id, question_id, choice) VALUES (?,?,?)').run(attempt.id, qid, choice);
     if (!r.changes) throw new HttpError(409, 'You’ve already answered this question.');
 
-    // Reading the feedback shouldn't eat into the time left for the remaining questions
-    const answered = db.prepare('SELECT COUNT(*) n FROM attempt_answers WHERE attempt_id=?').get(attempt.id).n;
-    const secs = db.prepare('SELECT seconds_per_question s FROM quizzes WHERE id=?').get(attempt.quiz_id).s;
-    const deadline = now + (ids.length - answered) * secs * 1000 + RULES.NETWORK_GRACE_MS;
-    if (deadline > attempt.deadline_at) db.prepare('UPDATE attempts SET deadline_at=? WHERE id=?').run(deadline, attempt.id);
-
-    return { correct: choice === q.answer_index, answer: q.answer_index, explanation: q.explanation };
+    return { correct: choice === q.answer_index, answer: q.answer_index, explanation: q.explanation, late,
+      last: attempt.current_index === ids.length - 1 };
   })();
   res.json(out);
 }));
 
-// Scores the attempt on the server and pays points, at most once per quiz per day
+// Releases the next question once the current one is answered. Its timer starts now.
+attempts.post('/:id/next', wrap((req, res) => {
+  const out = db.transaction(() => {
+    const attempt = ownAttempt(req.params.id, req.user.id);
+    const ids = JSON.parse(attempt.question_ids);
+    if (!isLocked(attempt.id, ids[attempt.current_index])) throw new HttpError(409, 'Answer the current question first.');
+    const index = attempt.current_index + 1;
+    if (index >= ids.length) throw new HttpError(409, 'There are no more questions. Submit your answers.');
+    db.prepare('UPDATE attempts SET current_index=?, served_at=? WHERE id=?').run(index, Date.now(), attempt.id);
+    return { index, total: ids.length, question: publicQuestion(ids[index]) };
+  })();
+  res.json(out);
+}));
+
+// Scores the attempt on the server from the locked answers and pays points, at most once per quiz per day
 attempts.post('/:id/submit', wrap((req, res) => {
   const result = db.transaction(() => {
     const attempt = ownAttempt(req.params.id, req.user.id);
     const quiz = db.prepare('SELECT * FROM quizzes WHERE id=?').get(attempt.quiz_id);
     const ids = JSON.parse(attempt.question_ids);
-    const raw = Array.isArray(req.body.answers) ? req.body.answers : [];
-    // Map answers by question id; ignore anything not in this attempt
-    const byId = new Map(raw.filter((a) => a && ids.includes(Number(a.questionId)))
-      .map((a) => [Number(a.questionId), Number.isInteger(a.choice) ? a.choice : null]));
-    // Locked answers always win over whatever the client sends now
+    // Only answers locked during play count; anything else the client sends is ignored
     const locked = new Map(db.prepare('SELECT question_id, choice FROM attempt_answers WHERE attempt_id=?').all(attempt.id)
       .map((r) => [r.question_id, r.choice]));
 
@@ -107,7 +128,7 @@ attempts.post('/:id/submit', wrap((req, res) => {
     const review = ids.map((qid) => {
       const q = qMap.get(qid);
       if (!q) return null;
-      const choice = locked.has(qid) ? locked.get(qid) : byId.has(qid) ? byId.get(qid) : null;
+      const choice = locked.has(qid) ? locked.get(qid) : null;
       const correct = choice === q.answer_index;
       if (correct) score++;
       return { questionId: qid, text: q.text, options: JSON.parse(q.options), choice, answer: q.answer_index, correct, explanation: q.explanation, imageUrl: q.image_url || null };
@@ -128,7 +149,7 @@ attempts.post('/:id/submit', wrap((req, res) => {
     const earned = points + bonus;
 
     db.prepare(`UPDATE attempts SET answers=?, status=?, score=?, points_earned=?, finished_at=? WHERE id=?`)
-      .run(JSON.stringify(raw), late ? 'expired' : 'completed', score, earned, now, attempt.id);
+      .run(JSON.stringify([...locked].map(([questionId, choice]) => ({ questionId, choice }))), late ? 'expired' : 'completed', score, earned, now, attempt.id);
     const reason = `${quiz.title}: ${score}/${review.length}${multiplier > 1 ? ' (daily challenge x2)' : ''}${bonus ? ' + perfect bonus' : ''}`;
     if (earned > 0) addPoints(req.user.id, earned, reason, `attempt:${attempt.id}`);
 

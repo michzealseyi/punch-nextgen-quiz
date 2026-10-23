@@ -49,7 +49,7 @@ test('quizzes and attempts that do not exist, or belong to someone else, return 
   assert.equal((await call('/quizzes/99999/start', { method: 'POST', token: t })).status, 404);
 
   const s = await call(`/quizzes/${await firstQuizId()}/start`, { method: 'POST', token: t });
-  const q = s.data.questions[0];
+  const q = s.data.question;
   assert.equal((await call(`/attempts/${s.data.attemptId}/submit`, { method: 'POST', token: other, body: { answers: [] } })).status, 404);
   assert.equal((await call(`/attempts/${s.data.attemptId}/answer`, { method: 'POST', token: other, body: { questionId: q.id, choice: 0 } })).status, 404);
 });
@@ -58,14 +58,14 @@ test('answers cannot be locked after the attempt is submitted', async () => {
   const t = await register('late-answer@x.com');
   const s = await call(`/quizzes/${await firstQuizId()}/start`, { method: 'POST', token: t });
   await call(`/attempts/${s.data.attemptId}/submit`, { method: 'POST', token: t, body: { answers: [] } });
-  const r = await call(`/attempts/${s.data.attemptId}/answer`, { method: 'POST', token: t, body: { questionId: s.data.questions[0].id, choice: 0 } });
+  const r = await call(`/attempts/${s.data.attemptId}/answer`, { method: 'POST', token: t, body: { questionId: s.data.question.id, choice: 0 } });
   assert.equal(r.status, 409);
 });
 
 test('garbage answers score zero instead of crashing', async () => {
   const t = await register('garbage@x.com');
   const s = await call(`/quizzes/${await firstQuizId()}/start`, { method: 'POST', token: t });
-  const answers = [{ questionId: 'abc', choice: 2 }, null, { questionId: s.data.questions[0].id, choice: 'B' }, 42];
+  const answers = [{ questionId: 'abc', choice: 2 }, null, { questionId: s.data.question.id, choice: 'B' }, 42];
   const r = await call(`/attempts/${s.data.attemptId}/submit`, { method: 'POST', token: t, body: { answers } });
   assert.equal(r.status, 200);
   assert.equal(r.data.score, 0);

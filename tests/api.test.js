@@ -1,4 +1,4 @@
-const { call, register, adminToken, answerOf, db } = require('./helpers');
+const { call, register, adminToken, answerOf, play, submit, db } = require('./helpers');
 const test = require('node:test');
 const assert = require('node:assert');
 
@@ -16,29 +16,25 @@ test('duplicate email is rejected', async () => {
   assert.equal(r.status, 409);
 });
 
-test('quiz start never leaks answers', async () => {
+test('quiz start sends only the first question, and never an answer', async () => {
   const { data } = await call('/quizzes');
   const r = await call(`/quizzes/${data.quizzes[0].id}/start`, { method: 'POST', token });
   assert.equal(r.status, 201);
-  assert.ok(r.data.questions.length > 0);
-  for (const q of r.data.questions) assert.equal(q.answer_index, undefined);
+  assert.equal(r.data.questions, undefined);
+  assert.equal(r.data.index, 0);
+  assert.equal(r.data.total, 10);
+  assert.deepEqual(Object.keys(r.data.question).sort(), ['id', 'imageUrl', 'options', 'text']);
 });
 
 test('perfect score earns points + bonus once per day, then practice only', async () => {
   const quizId = (await call('/quizzes')).data.quizzes[1].id;
-  const play = async () => {
-    const s = await call(`/quizzes/${quizId}/start`, { method: 'POST', token });
-    const answers = s.data.questions.map((q) => ({
-      questionId: q.id, choice: db.prepare('SELECT answer_index a FROM questions WHERE id=?').get(q.id).a,
-    }));
-    return call(`/attempts/${s.data.attemptId}/submit`, { method: 'POST', token, body: { answers } });
-  };
-  const first = await play();
+  const playPerfect = async () => submit(token, (await play(token, quizId)).start.attemptId);
+  const first = await playPerfect();
   assert.equal(first.data.score, first.data.total);
   assert.equal(first.data.bonus, 20);
   assert.ok(first.data.earned > 20);
 
-  const second = await play();
+  const second = await playPerfect();
   assert.equal(second.data.earned, 0);
   assert.match(second.data.note, /already earned/);
 });
@@ -94,10 +90,10 @@ test('every quiz presents 10 multiple-choice questions with four options', async
   const t = await register('ten@x.com');
   for (const q of (await call('/quizzes')).data.quizzes) {
     assert.equal(q.question_count, 10);
-    const s = await call(`/quizzes/${q.id}/start`, { method: 'POST', token: t });
-    assert.equal(s.data.questions.length, 10);
-    assert.equal(new Set(s.data.questions.map((x) => x.id)).size, 10);
-    for (const x of s.data.questions) assert.equal(x.options.length, 4);
+    const { seen } = await play(t, q.id);
+    assert.equal(seen.length, 10);
+    assert.equal(new Set(seen.map((x) => x.id)).size, 10);
+    for (const x of seen) assert.equal(x.options.length, 4);
   }
 });
 
@@ -105,7 +101,7 @@ test('locked answers reveal feedback, cannot be changed, and override the submit
   const t = await register('lock@x.com');
   const quizId = (await call('/quizzes')).data.quizzes[0].id;
   const s = await call(`/quizzes/${quizId}/start`, { method: 'POST', token: t });
-  const q = s.data.questions[0];
+  const q = s.data.question;
   const wrong = (answerOf(q.id) + 1) % 4;
 
   const first = await call(`/attempts/${s.data.attemptId}/answer`, { method: 'POST', token: t, body: { questionId: q.id, choice: wrong } });
@@ -116,9 +112,13 @@ test('locked answers reveal feedback, cannot be changed, and override the submit
   const again = await call(`/attempts/${s.data.attemptId}/answer`, { method: 'POST', token: t, body: { questionId: q.id, choice: answerOf(q.id) } });
   assert.equal(again.status, 409);
 
-  // Sending the right answer at submit time doesn't undo the locked wrong one
-  const answers = s.data.questions.map((x) => ({ questionId: x.id, choice: answerOf(x.id) }));
-  const r = await call(`/attempts/${s.data.attemptId}/submit`, { method: 'POST', token: t, body: { answers } });
+  // Answer the rest correctly through the normal flow
+  for (let i = 1; i < s.data.total; i++) {
+    const n = (await call(`/attempts/${s.data.attemptId}/next`, { method: 'POST', token: t })).data.question;
+    await call(`/attempts/${s.data.attemptId}/answer`, { method: 'POST', token: t, body: { questionId: n.id, choice: answerOf(n.id) } });
+  }
+  // Claiming the right answer at submit time doesn't undo the locked wrong one
+  const r = await submit(t, s.data.attemptId, { answers: [{ questionId: q.id, choice: answerOf(q.id) }] });
   assert.equal(r.data.score, r.data.total - 1);
 });
 
@@ -154,10 +154,9 @@ test('the daily challenge pays double points', async () => {
   const t = await register('challenge@x.com');
   const { challengeId, quizzes } = (await call('/quizzes')).data;
   const quiz = quizzes.find((q) => q.id === challengeId);
-  const s = await call(`/quizzes/${challengeId}/start`, { method: 'POST', token: t });
-  assert.equal(s.data.quiz.challenge, true);
-  const answers = s.data.questions.map((x) => ({ questionId: x.id, choice: answerOf(x.id) }));
-  const r = await call(`/attempts/${s.data.attemptId}/submit`, { method: 'POST', token: t, body: { answers } });
+  const { start } = await play(t, challengeId);
+  assert.equal(start.quiz.challenge, true);
+  const r = await submit(t, start.attemptId);
   assert.equal(r.data.points, r.data.score * quiz.points_per_correct * 2);
   assert.ok(r.data.newBadges.some((b) => b.id === 'challenger'));
 });
@@ -218,4 +217,48 @@ test('admins can open a poll, which closes the previous one', async () => {
   assert.equal(poll.id, r.data.id);
   assert.deepEqual(poll.options, ['Puff-puff', 'Chin-chin']);
   assert.equal((await call('/admin/polls', { method: 'POST', token: a, body: { question: 'One option', options: ['Only'] } })).status, 400);
+});
+
+/* ---------- One question at a time ---------- */
+
+test('a later question cannot be answered before it is released', async () => {
+  const t = await register('early@x.com');
+  const quizId = (await call('/quizzes')).data.quizzes[0].id;
+  const s = (await call(`/quizzes/${quizId}/start`, { method: 'POST', token: t })).data;
+  // Even someone who knew the second question's id couldn't answer it yet
+  const ids = JSON.parse(db.prepare('SELECT question_ids q FROM attempts WHERE id=?').get(s.attemptId).q);
+  const early = await call(`/attempts/${s.attemptId}/answer`, { method: 'POST', token: t, body: { questionId: ids[1], choice: 0 } });
+  assert.equal(early.status, 409);
+});
+
+test('the next question is only released after the current one is answered', async () => {
+  const t = await register('next@x.com');
+  const quizId = (await call('/quizzes')).data.quizzes[0].id;
+  const s = (await call(`/quizzes/${quizId}/start`, { method: 'POST', token: t })).data;
+  assert.equal((await call(`/attempts/${s.attemptId}/next`, { method: 'POST', token: t })).status, 409);
+  await call(`/attempts/${s.attemptId}/answer`, { method: 'POST', token: t, body: { questionId: s.question.id, choice: 0 } });
+  const n = await call(`/attempts/${s.attemptId}/next`, { method: 'POST', token: t });
+  assert.equal(n.status, 200);
+  assert.equal(n.data.index, 1);
+  assert.notEqual(n.data.question.id, s.question.id);
+  assert.equal(n.data.question.answer_index, undefined);
+});
+
+test('an answer sent after the question time is up counts as no answer', async () => {
+  const t = await register('slow@x.com');
+  const quizId = (await call('/quizzes')).data.quizzes[0].id;
+  const s = (await call(`/quizzes/${quizId}/start`, { method: 'POST', token: t })).data;
+  db.prepare('UPDATE attempts SET served_at=? WHERE id=?').run(Date.now() - 10 * 60 * 1000, s.attemptId);
+  const r = await call(`/attempts/${s.attemptId}/answer`, { method: 'POST', token: t, body: { questionId: s.question.id, choice: answerOf(s.question.id) } });
+  assert.equal(r.status, 200);
+  assert.equal(r.data.late, true);
+  assert.equal(r.data.correct, false);
+});
+
+test('there is no question after the last one', async () => {
+  const t = await register('last@x.com');
+  const quizId = (await call('/quizzes')).data.quizzes[0].id;
+  const { start } = await play(t, quizId);
+  assert.equal((await call(`/attempts/${start.attemptId}/next`, { method: 'POST', token: t })).status, 409);
+  assert.equal((await submit(t, start.attemptId)).data.score, 10);
 });

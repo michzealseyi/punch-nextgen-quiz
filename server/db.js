@@ -145,5 +145,8 @@ function addColumn(table, column, definition) {
 }
 addColumn('questions', 'image_url', "TEXT NOT NULL DEFAULT ''");
 addColumn('attempts', 'challenge', 'INTEGER NOT NULL DEFAULT 0');
+// Questions are released one at a time: which one is showing, and when it was sent
+addColumn('attempts', 'current_index', 'INTEGER NOT NULL DEFAULT 0');
+addColumn('attempts', 'served_at', 'INTEGER');
 
 module.exports = db;

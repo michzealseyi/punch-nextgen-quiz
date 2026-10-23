@@ -41,7 +41,7 @@ The brief allows **at most five minutes** and asks you to **explain your persona
 - Show `client/src/pages/Play.jsx`: "Each question is a component; it locks the answer on the server, then shows the feedback."
 - Show the `server/routes/` folder: "One file per area on the API."
 - In `quizzes.js`, the submit transaction: locked answers, the once-per-day check, `addPoints`.
-- Run `npm test`: "27 tests, including a whole file for invalid and duplicate requests."
+- Run `npm test`: "31 tests, including a whole file for invalid and duplicate requests."
 
 **7. My contributions and AI use — 4:15 to 4:45**
 - Say this in your own words, and make sure it matches the README's "Use of AI tools" section.

@@ -8,7 +8,7 @@ import { useUi } from '../context/UiContext.jsx';
 import { confetti, KEYS, reducedMotion } from '../utils.js';
 
 // One question. Keyed by index in the parent, so its state (timer, lock, feedback) starts fresh each time.
-function Question({ quiz, attemptId, q, last, onLocked, onNext }) {
+function Question({ quiz, attemptId, q, last, busy, onLocked, onNext }) {
   const total = quiz.secondsPerQuestion * 1000;
   const startedAt = useRef(performance.now());
   const [left, setLeft] = useState(total);
@@ -66,13 +66,15 @@ function Question({ quiz, attemptId, q, last, onLocked, onNext }) {
     let c = 'option';
     if (feedback && !feedback.error) {
       if (i === feedback.answer) c += ' is-correct';
-      else if (i === choice) c += ' is-wrong';
+      else if (i === choice && !feedback.late) c += ' is-wrong';
     }
     return c;
   };
   const low = !locked && left < 5000;
+  // The server records an answer that arrives after the question's time as "no answer"
+  const timedOut = feedback && (choice === null || feedback.late);
   const head = feedback && !feedback.error && (feedback.correct ? 'Correct!'
-    : choice === null ? `Time’s up. The answer is ${KEYS[feedback.answer]}.` : `Not quite. The answer is ${KEYS[feedback.answer]}.`);
+    : timedOut ? `Time’s up. The answer is ${KEYS[feedback.answer]}.` : `Not quite. The answer is ${KEYS[feedback.answer]}.`);
 
   return (
     <>
@@ -98,18 +100,37 @@ function Question({ quiz, attemptId, q, last, onLocked, onNext }) {
       </div>
       <div className="actions play__foot">
         <span className="hint play__tip">Press A–D to answer, Enter to continue.</span>
-        <button ref={nextRef} className="btn" type="button" disabled={!feedback} onClick={onNext}>{last ? 'See results' : 'Next question'}</button>
+        <button ref={nextRef} className="btn" type="button" disabled={!feedback || busy} onClick={onNext}>{last ? 'See results' : 'Next question'}</button>
       </div>
     </>
   );
 }
 
+// The server releases one question at a time; the next one is fetched only when the student moves on,
+// so its timer starts when it appears and later questions are never visible early.
 function Player({ session, onFinish }) {
-  const { quiz, questions, attemptId } = session;
+  const { quiz, attemptId, total } = session;
   const [index, setIndex] = useState(0);
+  const [question, setQuestion] = useState(session.question);
   const [score, setScore] = useState(0);
-  const answers = useRef(questions.map((q) => ({ questionId: q.id, choice: null })));
-  const last = index === questions.length - 1;
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const moving = useRef(false);
+  const last = index === total - 1;
+
+  const next = async () => {
+    if (moving.current) return;
+    moving.current = true;
+    if (last) { onFinish(); return; }
+    setBusy(true);
+    try {
+      const r = await api.post(`/attempts/${attemptId}/next`);
+      setQuestion(r.question);
+      setIndex(r.index);
+    } catch (err) { setError(err.message); }
+    setBusy(false);
+    moving.current = false;
+  };
 
   return (
     <section className="play">
@@ -118,17 +139,19 @@ function Player({ session, onFinish }) {
         <span className="play__score">Score <b key={score} className={score ? 'is-bump' : ''}>{score}</b></span>
       </div>
       <div className="progress" aria-hidden="true">
-        {questions.map((_, i) => <span key={i} className={i < index ? 'is-done' : i === index ? 'is-current' : ''} />)}
+        {Array.from({ length: total }, (_, i) => <span key={i} className={i < index ? 'is-done' : i === index ? 'is-current' : ''} />)}
       </div>
-      <p className="play__count">Question {index + 1} of {questions.length}</p>
+      <p className="play__count">Question {index + 1} of {total}</p>
+      {error && <div className="feedback__card"><b>{error}</b></div>}
       <Question
         key={index}
         quiz={quiz}
         attemptId={attemptId}
-        q={questions[index]}
+        q={question}
         last={last}
-        onLocked={(choice, correct) => { answers.current[index].choice = choice; if (correct) setScore((s) => s + 1); }}
-        onNext={() => (last ? onFinish(answers.current) : setIndex((i) => i + 1))}
+        busy={busy}
+        onLocked={(choice, correct) => { if (correct) setScore((s) => s + 1); }}
+        onNext={next}
       />
     </section>
   );
@@ -200,10 +223,11 @@ export default function Play() {
     api.post(`/quizzes/${id}/start`).then(setSession, setError);
   }, [id]);
 
-  const finish = async (answers) => {
+  // The server scores the answers locked during play, so there's nothing to send
+  const finish = async () => {
     setSubmitting(true);
     try {
-      const r = await api.post(`/attempts/${session.attemptId}/submit`, { answers });
+      const r = await api.post(`/attempts/${session.attemptId}/submit`);
       if (r.earned > 0) markPlayed(session.quiz.id);
       applyProgress(r);
       setPoints(r.balance);

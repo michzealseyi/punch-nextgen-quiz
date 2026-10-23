@@ -11,7 +11,8 @@ const RULES = {
   SUBMISSION_POINTS: 25,
   MAX_PENDING_SUBMISSIONS: 5,
   QUESTIONS_PER_ATTEMPT: 10,
-  NETWORK_GRACE_MS: 5000,
+  NETWORK_GRACE_MS: 5000,      // allowance for slow connections on each question's timer
+  IDLE_ALLOWANCE_MS: 60000,    // per question, before an abandoned attempt expires
 };
 
 const publicUser = (u) => ({ id: u.id, name: u.name, email: u.email, role: u.role, points: u.points, lifetimePoints: u.lifetime_points });
