@@ -77,7 +77,8 @@ function Question({ quiz, attemptId, q, last, busy, resume, onLocked, onNext }) 
   // The server records an answer that arrives after the question's time as "no answer"
   const timedOut = feedback && (choice === null || feedback.late);
   const head = feedback && !feedback.error && (feedback.correct ? 'Correct!'
-    : timedOut ? `Time’s up. The answer is ${KEYS[feedback.answer]}.` : `Not quite. The answer is ${KEYS[feedback.answer]}.`);
+    : feedback.forfeited ? `You left during this question, so it counts as missed. The answer is ${KEYS[feedback.answer]}.`
+      : timedOut ? `Time’s up. The answer is ${KEYS[feedback.answer]}.` : `Not quite. The answer is ${KEYS[feedback.answer]}.`);
 
   return (
     <>
@@ -102,7 +103,7 @@ function Question({ quiz, attemptId, q, last, busy, resume, onLocked, onNext }) 
           : <div className={'feedback__card ' + (feedback.correct ? 'is-correct' : 'is-wrong')}><b>{head}</b>{feedback.explanation && <p>{feedback.explanation}</p>}</div>)}
       </div>
       <div className="actions play__foot">
-        <span className="hint play__tip">Press A–D to answer, Enter to continue. If you leave, your place is kept and the timer keeps running.</span>
+        <span className="hint play__tip">Press A–D to answer, Enter to continue. Leaving the page during a question counts it as missed.</span>
         <button ref={nextRef} className="btn" type="button" disabled={!feedback || busy} onClick={onNext}>{last ? 'See results' : 'Next question'}</button>
       </div>
     </>
@@ -124,7 +125,11 @@ function Player({ session, onFinish }) {
   const last = index === total - 1;
 
   useEffect(() => {
-    if (session.resumed) toast(`Welcome back. You’re on question ${session.index + 1} of ${total}, and the timer kept running.`);
+    if (session.resumed) {
+      toast(!session.forfeited ? `Welcome back. You’re on question ${session.index + 1} of ${total}.`
+        : session.answered ? 'Welcome back. You left during the last question, so it counts as missed.'
+          : `Welcome back. The question you left counts as missed, so here’s question ${session.index + 1} of ${total}.`, !!session.forfeited);
+    }
     // Refreshing or closing the tab mid-quiz asks first; the place is kept either way
     const warn = (e) => { e.preventDefault(); e.returnValue = ''; };
     window.addEventListener('beforeunload', warn);

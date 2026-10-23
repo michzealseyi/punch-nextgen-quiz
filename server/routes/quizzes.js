@@ -28,8 +28,8 @@ quizzes.get('/played-today', requireAuth, wrap((req, res) => {
 
 // Quizzes this student has started but not finished, so the UI can offer "Continue"
 quizzes.get('/in-progress', requireAuth, wrap((req, res) => {
-  res.json({ attempts: db.prepare(`SELECT quiz_id quizId, current_index "index", total FROM attempts
-                                   WHERE user_id=? AND status='in_progress' AND deadline_at>?`).all(req.user.id, Date.now()) });
+  res.json({ attempts: db.prepare(`SELECT a.quiz_id quizId, a.total, (SELECT COUNT(*) FROM attempt_answers WHERE attempt_id=a.id) answered
+                                   FROM attempts a WHERE a.user_id=? AND a.status='in_progress' AND a.deadline_at>?`).all(req.user.id, Date.now()) });
 }));
 
 const quizView = (quiz, challenge) => ({
@@ -37,9 +37,22 @@ const quizView = (quiz, challenge) => ({
   pointsPerCorrect: quiz.points_per_correct * (challenge ? RULES.CHALLENGE_MULTIPLIER : 1), challenge: !!challenge,
 });
 
+// Leaving the page during an unanswered question forfeits it: it's locked as "no answer" and, unless it
+// was the last one, the next question is released with a fresh timer. So a student can't step away, look
+// the answer up, and come back to answer it. Returns true if a question was forfeited.
+function forfeitIfUnanswered(attempt) {
+  const ids = JSON.parse(attempt.question_ids);
+  if (isLocked(attempt.id, ids[attempt.current_index])) return false;
+  db.prepare('INSERT OR IGNORE INTO attempt_answers (attempt_id, question_id, choice) VALUES (?,?,NULL)').run(attempt.id, ids[attempt.current_index]);
+  if (attempt.current_index < ids.length - 1) {
+    db.prepare('UPDATE attempts SET current_index=current_index+1, served_at=? WHERE id=?').run(Date.now(), attempt.id);
+  }
+  return true;
+}
+
 // Where an attempt stands right now: the current question, the score so far, the time left on the
-// current question (the clock keeps running while the student is away), and its feedback if already answered.
-function attemptView(attempt, quiz, resumed) {
+// current question, and its feedback if it has already been answered (or forfeited).
+function attemptView(attempt, quiz, resumed, forfeited = false) {
   const ids = JSON.parse(attempt.question_ids);
   const qid = ids[attempt.current_index];
   const score = db.prepare(`SELECT COUNT(*) n FROM attempt_answers a JOIN questions q ON q.id=a.question_id
@@ -49,7 +62,7 @@ function attemptView(attempt, quiz, resumed) {
   if (locked) {
     const q = db.prepare('SELECT answer_index, explanation FROM questions WHERE id=?').get(qid);
     answered = { choice: locked.choice, correct: locked.choice === q.answer_index, answer: q.answer_index, explanation: q.explanation,
-      last: attempt.current_index === ids.length - 1 };
+      last: attempt.current_index === ids.length - 1, forfeited };
   }
   const msLeft = attempt.served_at + quiz.seconds_per_question * 1000 - Date.now();
   return {
@@ -62,6 +75,7 @@ function attemptView(attempt, quiz, resumed) {
     answered,
     secondsLeft: Math.max(0, Math.min(quiz.seconds_per_question, msLeft / 1000)),
     resumed,
+    forfeited,
   };
 }
 
@@ -69,11 +83,18 @@ quizzes.post('/:id/start', requireAuth, wrap((req, res) => {
   const quiz = db.prepare('SELECT * FROM quizzes WHERE id=? AND active=1').get(req.params.id);
   if (!quiz) throw new HttpError(404, 'This quiz isn’t available.');
 
-  // Coming back to a quiz you left continues the same attempt, at the same question, on the same clock.
-  // Restarting to get fresh questions or a fresh timer isn't possible until the attempt expires.
+  // Coming back to a quiz you left continues the same attempt with the same questions. A question left
+  // unanswered is forfeited and the next one is shown. Restarting for fresh questions isn't possible
+  // until the attempt expires.
   const open = db.prepare(`SELECT * FROM attempts WHERE user_id=? AND quiz_id=? AND status='in_progress'
                            ORDER BY id DESC LIMIT 1`).get(req.user.id, quiz.id);
-  if (open && Date.now() <= open.deadline_at) return res.json(attemptView(open, quiz, true));
+  if (open && Date.now() <= open.deadline_at) {
+    const view = db.transaction(() => {
+      const forfeited = forfeitIfUnanswered(open);
+      return attemptView(db.prepare('SELECT * FROM attempts WHERE id=?').get(open.id), quiz, true, forfeited);
+    })();
+    return res.json(view);
+  }
 
   const pool = db.prepare('SELECT id FROM questions WHERE quiz_id=?').all(quiz.id);
   if (!pool.length) throw new HttpError(409, 'This quiz has no questions yet.');

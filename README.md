@@ -159,7 +159,7 @@ Quiz points are paid once per quiz per day (West Africa Time); replays are pract
 
 - **The server is the only authority on anything that affects points.** The browser never receives a correct answer before the student has locked their own. Scores, points, levels and badges are all worked out on the server inside a database transaction.
 - **One question at a time.** The browser only ever holds the question being answered. `/start` returns question 1; `/next` releases the following question only after the current one is locked, and starts that question's timer on the server. Even with DevTools open, a student can't read ahead and look answers up.
-- **Leaving doesn't reset a quiz.** Starting a quiz that has an unfinished attempt resumes it: same questions, same position, same score, and the current question's clock keeps running while the student is away. So refreshing or navigating away can't be used to get new questions or extra time. Quiz cards show "Continue (question N of 10)".
+- **Leaving can't be used to cheat.** Starting a quiz that has an unfinished attempt resumes it: same questions, same score. If the student left during an unanswered question, that question is **counted as missed** and they get the next one; leaving after answering just returns them to that answer's feedback. So stepping away to look an answer up, refreshing for a new timer, or restarting for easier questions all fail. Quiz cards show "Continue (N of 10 answered)".
 - **Lock, then reveal.** Instant feedback needed the answer revealed per question without letting anyone change it afterwards. `/answer` writes the choice to `attempt_answers` first, and the primary key `(attempt_id, question_id)` makes the lock permanent. At submit time, locked answers override anything the client sends.
 - **Two layers against duplicate rewards.**
   1. An attempt can only move from `in_progress` once; a second submit gets `409`.
@@ -181,7 +181,7 @@ Quiz points are paid once per quiz per day (West Africa Time); replays are pract
 - Only the question currently showing can be answered (`409` otherwise), and the next is released only after it's answered.
 - **A timer per question, kept by the server:** an answer that arrives after that question's seconds (plus 5 seconds of network grace) is recorded as "no answer".
 - Each attempt is tied to the question IDs it was given; answers for other questions are refused. The score is calculated only from answers locked during play, and anything sent at submit time is ignored.
-- **Leaving and coming back resumes the same attempt** at the same question, with the timer still running. A fresh attempt is only possible once an abandoned one passes its overall time limit, and an expired attempt earns 0 points.
+- **Leaving and coming back resumes the same attempt.** A question left unanswered is locked as "no answer" and the next question is released; a question already answered stays as it was. A fresh attempt is only possible once an abandoned one passes its overall time limit, and an expired attempt earns 0 points.
 - One submission per attempt. Points are paid once per quiz per day.
 - The daily challenge rotates by WAT date, and each attempt records whether it was a challenge when it started.
 - One vote per poll. At most 5 student questions waiting for review per student, and they go live only after an admin approves them.
@@ -292,7 +292,7 @@ tests/
 **Features and rules** (`tests/api.test.js`):
 - every quiz presents 10 four-option questions
 - `/start` sends only the current question and never an answer; questions can't be answered early, skipped, or after their time
-- leaving and coming back resumes the same attempt, with the clock still running
+- leaving mid-question counts that question as missed and moves on; leaving after answering keeps the answer
 - perfect-score bonus, and points once per day
 - a second submit gets `409`, and late submissions earn nothing
 - locked answers can't be changed, and only locked answers are scored

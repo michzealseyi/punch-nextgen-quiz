@@ -9,7 +9,7 @@ const quizPoints = (q, challengeId, mult) => q.question_count * q.points_per_cor
 function useQuizAction(q, points) {
   const { playedToday, inProgress } = useAuth();
   const open = inProgress.get(q.id);
-  if (open) return { label: `Continue (question ${open.index + 1} of ${open.total})`, ghost: false, done: false };
+  if (open) return { label: `Continue (${open.answered} of ${open.total} answered)`, ghost: false, done: false };
   const done = playedToday.has(q.id);
   return { label: done ? 'Practise' : `Play for ${fmt(points)} pts`, ghost: done, done };
 }
