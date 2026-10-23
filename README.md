@@ -100,7 +100,7 @@ On macOS or Linux, run `lsof -i :3000`, then `kill <pid>`.
 | Desks `/explore` (Explore) | Quizzes grouped by desk, with progress in each |
 | Leaderboard `/leaderboard`, `/leaderboard/week` (Belong) | Podium for the top 3, all-time or weekly ranking, your rank pinned at the bottom |
 | Dashboard `/me` | XP and level bar, points, quizzes completed, badges, streak, rank, accuracy, recommended quiz, desk progress, points history |
-| Quiz `/quiz/:id` | 10 timed questions, instant right/wrong with an explanation, live score, results with XP, level and a full review |
+| Quiz `/quiz/:id` | A "Before you start" rules screen (the timer only starts on **Start quiz**), then 10 timed questions with instant right/wrong and an explanation, a live score, and a standing notice that leaving mid-question counts it as missed; results with XP, level and a full review |
 | Contribute `/contribute` | Suggest a question; an approved question earns 25 points |
 | Rewards `/rewards` | Progress towards each reward, a confirm dialog, redemption codes |
 

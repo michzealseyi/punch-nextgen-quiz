@@ -103,7 +103,7 @@ function Question({ quiz, attemptId, q, last, busy, resume, onLocked, onNext }) 
           : <div className={'feedback__card ' + (feedback.correct ? 'is-correct' : 'is-wrong')}><b>{head}</b>{feedback.explanation && <p>{feedback.explanation}</p>}</div>)}
       </div>
       <div className="actions play__foot">
-        <span className="hint play__tip">Press A–D to answer, Enter to continue. Leaving the page during a question counts it as missed.</span>
+        <span className="hint play__tip">Press A–D to answer, Enter to continue.</span>
         <button ref={nextRef} className="btn" type="button" disabled={!feedback || busy} onClick={onNext}>{last ? 'See results' : 'Next question'}</button>
       </div>
     </>
@@ -160,6 +160,7 @@ function Player({ session, onFinish }) {
         {Array.from({ length: total }, (_, i) => <span key={i} className={i < index ? 'is-done' : i === index ? 'is-current' : ''} />)}
       </div>
       <p className="play__count">Question {index + 1} of {total}</p>
+      <p className="play__notice" role="note"><span aria-hidden="true">⚠</span> Stay on this page. Leaving during a question counts it as missed.</p>
       {error && <div className="feedback__card"><b>{error}</b></div>}
       <Question
         key={index}
@@ -226,20 +227,52 @@ function Result({ quiz, r }) {
   );
 }
 
+// Shown before a new attempt starts, so the rules are read before any timer runs
+function Rules({ quiz, mult, onStart }) {
+  const [busy, setBusy] = useState(false);
+  const challenge = quiz.id === mult.challengeId;
+  return (
+    <section className="play rules">
+      <p className="hand">Before you start</p>
+      <h1 className="display">{quiz.title}</h1>
+      <p className="hint">{quiz.category} · {quiz.question_count} questions · {quiz.seconds_per_question} seconds each{challenge && ` · daily challenge, ${mult.value}× points`}</p>
+      <ol className="rules__list">
+        <li><b>One question at a time.</b> Each has its own {quiz.seconds_per_question}-second timer.</li>
+        <li><b>Your first pick is final.</b> The answer locks as soon as you choose it.</li>
+        <li className="rules__warn"><b>Stay on this page.</b> If you leave, refresh or close the page while a question is showing and you haven’t answered it, that question <b>counts as missed</b>. When you come back, you continue from the next question.</li>
+        <li><b>Points are paid once per quiz per day.</b> Playing again today is practice.</li>
+      </ol>
+      <div className="actions" style={{ justifyContent: 'flex-start' }}>
+        <button className="btn" type="button" disabled={busy} onClick={() => { setBusy(true); onStart(); }}>Start quiz</button>
+        <Link className="btn btn--ghost" to="/">Back to quizzes</Link>
+      </div>
+    </section>
+  );
+}
+
 export default function Play() {
   const { id } = useParams();
   const { setPoints, markPlayed, applyProgress } = useAuth();
+  const [intro, setIntro] = useState(null);
   const [session, setSession] = useState(null);
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState(null);
   const started = useRef(false);
 
-  // Guarded so React's development double-effect doesn't start two attempts
+  const start = () => api.post(`/quizzes/${id}/start`).then(setSession, setError);
+
+  // Guarded so React's development double-effect doesn't run this twice.
+  // An unfinished attempt resumes straight away; otherwise show the rules first.
   useEffect(() => {
     if (started.current) return;
     started.current = true;
-    api.post(`/quizzes/${id}/start`).then(setSession, setError);
+    Promise.all([api.get('/quizzes'), api.get('/quizzes/in-progress')]).then(([list, open]) => {
+      if (open.attempts.some((a) => a.quizId === Number(id))) return start();
+      const quiz = list.quizzes.find((q) => q.id === Number(id));
+      if (!quiz) throw new Error('This quiz isn’t available.');
+      setIntro({ quiz, mult: { challengeId: list.challengeId, value: list.challengeMultiplier } });
+    }).catch(setError);
   }, [id]);
 
   // The server scores the answers locked during play, so there's nothing to send
@@ -257,6 +290,7 @@ export default function Play() {
   if (error) return <ErrorState error={error} />;
   if (result) return <Result quiz={session.quiz} r={result} />;
   if (submitting) return <p className="loading">Adding up your score…</p>;
+  if (!session && intro) return <Rules {...intro} onStart={start} />;
   if (!session) return <Skeleton />;
   return <Player session={session} onFinish={finish} />;
 }
