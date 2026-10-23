@@ -8,14 +8,17 @@ import { useUi } from '../context/UiContext.jsx';
 import { confetti, KEYS, reducedMotion } from '../utils.js';
 
 // One question. Keyed by index in the parent, so its state (timer, lock, feedback) starts fresh each time.
-function Question({ quiz, attemptId, q, last, busy, onLocked, onNext }) {
+// `resume` carries the server's saved state when a student comes back mid-quiz: the time left on this
+// question (the clock kept running while they were away) and its feedback if it was already answered.
+function Question({ quiz, attemptId, q, last, busy, resume, onLocked, onNext }) {
   const total = quiz.secondsPerQuestion * 1000;
-  const startedAt = useRef(performance.now());
-  const [left, setLeft] = useState(total);
-  const [choice, setChoice] = useState(undefined); // undefined = not answered yet; null = timed out
-  const [feedback, setFeedback] = useState(null);
+  const startLeft = resume ? resume.secondsLeft * 1000 : total;
+  const startedAt = useRef(performance.now() - (total - startLeft));
+  const [left, setLeft] = useState(startLeft);
+  const [choice, setChoice] = useState(resume?.answered ? resume.answered.choice : undefined); // undefined = not answered yet; null = timed out
+  const [feedback, setFeedback] = useState(resume?.answered || null);
   const locked = choice !== undefined;
-  const lockedRef = useRef(false);
+  const lockedRef = useRef(!!resume?.answered);
   const nextRef = useRef(null);
 
   // Lock the answer on the server first; only then does it tell us whether it was right
@@ -99,7 +102,7 @@ function Question({ quiz, attemptId, q, last, busy, onLocked, onNext }) {
           : <div className={'feedback__card ' + (feedback.correct ? 'is-correct' : 'is-wrong')}><b>{head}</b>{feedback.explanation && <p>{feedback.explanation}</p>}</div>)}
       </div>
       <div className="actions play__foot">
-        <span className="hint play__tip">Press A–D to answer, Enter to continue.</span>
+        <span className="hint play__tip">Press A–D to answer, Enter to continue. If you leave, your place is kept and the timer keeps running.</span>
         <button ref={nextRef} className="btn" type="button" disabled={!feedback || busy} onClick={onNext}>{last ? 'See results' : 'Next question'}</button>
       </div>
     </>
@@ -108,15 +111,25 @@ function Question({ quiz, attemptId, q, last, busy, onLocked, onNext }) {
 
 // The server releases one question at a time; the next one is fetched only when the student moves on,
 // so its timer starts when it appears and later questions are never visible early.
+// A returning student starts from the server's saved position and score.
 function Player({ session, onFinish }) {
   const { quiz, attemptId, total } = session;
-  const [index, setIndex] = useState(0);
+  const { toast } = useUi();
+  const [index, setIndex] = useState(session.index);
   const [question, setQuestion] = useState(session.question);
-  const [score, setScore] = useState(0);
+  const [score, setScore] = useState(session.score);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const moving = useRef(false);
   const last = index === total - 1;
+
+  useEffect(() => {
+    if (session.resumed) toast(`Welcome back. You’re on question ${session.index + 1} of ${total}, and the timer kept running.`);
+    // Refreshing or closing the tab mid-quiz asks first; the place is kept either way
+    const warn = (e) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [session, total, toast]);
 
   const next = async () => {
     if (moving.current) return;
@@ -150,6 +163,7 @@ function Player({ session, onFinish }) {
         q={question}
         last={last}
         busy={busy}
+        resume={index === session.index ? session : null}
         onLocked={(choice, correct) => { if (correct) setScore((s) => s + 1); }}
         onNext={next}
       />

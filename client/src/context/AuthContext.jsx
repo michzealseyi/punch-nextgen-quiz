@@ -12,7 +12,16 @@ export function AuthProvider({ children }) {
   const [level, setLevel] = useState(null);
   const [streak, setStreak] = useState(null);
   const [playedToday, setPlayedToday] = useState(() => new Set());
+  const [inProgress, setInProgress] = useState(() => new Map()); // quizId → { index, total } for unfinished attempts
   const [ready, setReady] = useState(false);
+
+  const loadInProgress = useCallback(async () => {
+    if (!hasToken()) { setInProgress(new Map()); return; }
+    try {
+      const { attempts } = await api.get('/quizzes/in-progress');
+      setInProgress(new Map(attempts.map((a) => [a.quizId, a])));
+    } catch { /* not critical */ }
+  }, []);
 
   const refresh = useCallback(async () => {
     if (!hasToken()) { setMe(null); return; }
@@ -48,10 +57,11 @@ export function AuthProvider({ children }) {
     setLevel(null);
     setStreak(null);
     setPlayedToday(new Set());
+    setInProgress(new Map());
   }, []);
 
   const value = {
-    me, level, streak, playedToday, ready, refresh, signIn, signOut, setMe,
+    me, level, streak, playedToday, inProgress, loadInProgress, ready, refresh, signIn, signOut, setMe,
     setPoints: (balance) => setMe((m) => (m ? { ...m, points: balance } : m)),
     markPlayed: (quizId) => setPlayedToday((s) => new Set(s).add(quizId)),
     applyProgress: (p) => { if (p.level) setLevel(p.level); if (p.streak) setStreak(p.streak); },

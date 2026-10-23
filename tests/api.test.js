@@ -262,3 +262,64 @@ test('there is no question after the last one', async () => {
   assert.equal((await call(`/attempts/${start.attemptId}/next`, { method: 'POST', token: t })).status, 409);
   assert.equal((await submit(t, start.attemptId)).data.score, 10);
 });
+
+/* ---------- Leaving and coming back ---------- */
+
+test('coming back to a quiz resumes the same attempt at the same question', async () => {
+  const t = await register('resume@x.com');
+  const quizId = (await call('/quizzes')).data.quizzes[0].id;
+  const s = (await call(`/quizzes/${quizId}/start`, { method: 'POST', token: t })).data;
+  assert.equal(s.resumed, false);
+  await call(`/attempts/${s.attemptId}/answer`, { method: 'POST', token: t, body: { questionId: s.question.id, choice: answerOf(s.question.id) } });
+  const q2 = (await call(`/attempts/${s.attemptId}/next`, { method: 'POST', token: t })).data.question;
+
+  // The student wanders off and comes back
+  const back = await call(`/quizzes/${quizId}/start`, { method: 'POST', token: t });
+  assert.equal(back.status, 200);
+  assert.equal(back.data.resumed, true);
+  assert.equal(back.data.attemptId, s.attemptId);
+  assert.equal(back.data.index, 1);
+  assert.equal(back.data.question.id, q2.id);
+  assert.equal(back.data.score, 1);
+  assert.equal(back.data.answered, null);
+
+  const listed = (await call('/quizzes/in-progress', { token: t })).data.attempts;
+  assert.deepEqual(listed, [{ quizId, index: 1, total: 10 }]);
+});
+
+test('leaving does not pause or reset the question timer', async () => {
+  const t = await register('clock@x.com');
+  const quizId = (await call('/quizzes')).data.quizzes[0].id;
+  const s = (await call(`/quizzes/${quizId}/start`, { method: 'POST', token: t })).data;
+  db.prepare('UPDATE attempts SET served_at=? WHERE id=?').run(Date.now() - 10 * 60 * 1000, s.attemptId);
+  const back = (await call(`/quizzes/${quizId}/start`, { method: 'POST', token: t })).data;
+  assert.equal(back.attemptId, s.attemptId);
+  assert.equal(back.secondsLeft, 0);
+  const late = await call(`/attempts/${s.attemptId}/answer`, { method: 'POST', token: t, body: { questionId: back.question.id, choice: answerOf(back.question.id) } });
+  assert.equal(late.data.late, true);
+});
+
+test('coming back after answering shows that answer, which cannot be changed', async () => {
+  const t = await register('answered@x.com');
+  const quizId = (await call('/quizzes')).data.quizzes[0].id;
+  const s = (await call(`/quizzes/${quizId}/start`, { method: 'POST', token: t })).data;
+  const wrong = (answerOf(s.question.id) + 1) % 4;
+  await call(`/attempts/${s.attemptId}/answer`, { method: 'POST', token: t, body: { questionId: s.question.id, choice: wrong } });
+  const back = (await call(`/quizzes/${quizId}/start`, { method: 'POST', token: t })).data;
+  assert.equal(back.index, 0);
+  assert.equal(back.answered.choice, wrong);
+  assert.equal(back.answered.correct, false);
+  const again = await call(`/attempts/${s.attemptId}/answer`, { method: 'POST', token: t, body: { questionId: s.question.id, choice: answerOf(s.question.id) } });
+  assert.equal(again.status, 409);
+});
+
+test('an abandoned attempt that has run out of time starts fresh and earns nothing', async () => {
+  const t = await register('abandon@x.com');
+  const quizId = (await call('/quizzes')).data.quizzes[0].id;
+  const s = (await call(`/quizzes/${quizId}/start`, { method: 'POST', token: t })).data;
+  db.prepare('UPDATE attempts SET deadline_at=? WHERE id=?').run(Date.now() - 1, s.attemptId);
+  const fresh = await call(`/quizzes/${quizId}/start`, { method: 'POST', token: t });
+  assert.equal(fresh.status, 201);
+  assert.notEqual(fresh.data.attemptId, s.attemptId);
+  assert.equal(db.prepare('SELECT status FROM attempts WHERE id=?').get(s.attemptId).status, 'expired');
+});

@@ -76,7 +76,7 @@ The database is created and seeded on first run. The seed includes 5 quizzes (60
 | `npm run build` | Build the React app into `client/dist` for `npm start` |
 | `npm start` | Serve the API and the built React app on port 3000 |
 | `npm run seed` | Wipe all data and reseed |
-| `npm test` | Run the 31 API tests against an in-memory database |
+| `npm test` | Run the 35 API tests against an in-memory database |
 
 **Updating an older local database:** restarting adds any new tables and columns without losing data. To load the 12-question banks, run `npm run seed`; this wipes existing accounts and attempts.
 
@@ -159,6 +159,7 @@ Quiz points are paid once per quiz per day (West Africa Time); replays are pract
 
 - **The server is the only authority on anything that affects points.** The browser never receives a correct answer before the student has locked their own. Scores, points, levels and badges are all worked out on the server inside a database transaction.
 - **One question at a time.** The browser only ever holds the question being answered. `/start` returns question 1; `/next` releases the following question only after the current one is locked, and starts that question's timer on the server. Even with DevTools open, a student can't read ahead and look answers up.
+- **Leaving doesn't reset a quiz.** Starting a quiz that has an unfinished attempt resumes it: same questions, same position, same score, and the current question's clock keeps running while the student is away. So refreshing or navigating away can't be used to get new questions or extra time. Quiz cards show "Continue (question N of 10)".
 - **Lock, then reveal.** Instant feedback needed the answer revealed per question without letting anyone change it afterwards. `/answer` writes the choice to `attempt_answers` first, and the primary key `(attempt_id, question_id)` makes the lock permanent. At submit time, locked answers override anything the client sends.
 - **Two layers against duplicate rewards.**
   1. An attempt can only move from `in_progress` once; a second submit gets `409`.
@@ -180,7 +181,7 @@ Quiz points are paid once per quiz per day (West Africa Time); replays are pract
 - Only the question currently showing can be answered (`409` otherwise), and the next is released only after it's answered.
 - **A timer per question, kept by the server:** an answer that arrives after that question's seconds (plus 5 seconds of network grace) is recorded as "no answer".
 - Each attempt is tied to the question IDs it was given; answers for other questions are refused. The score is calculated only from answers locked during play, and anything sent at submit time is ignored.
-- An abandoned attempt expires after a generous overall limit; submitting after that earns 0 points.
+- **Leaving and coming back resumes the same attempt** at the same question, with the timer still running. A fresh attempt is only possible once an abandoned one passes its overall time limit, and an expired attempt earns 0 points.
 - One submission per attempt. Points are paid once per quiz per day.
 - The daily challenge rotates by WAT date, and each attempt records whether it was a challenge when it started.
 - One vote per poll. At most 5 student questions waiting for review per student, and they go live only after an admin approves them.
@@ -227,7 +228,7 @@ client/                React front end (Vite)
 vite.config.mjs       Vite config: root client/, /api proxy for dev
 tests/
   helpers.js          in-memory DB + server per test file
-  api.test.js         features and rules (21 tests)
+  api.test.js         features and rules (25 tests)
   validation.test.js  invalid, unauthorised and duplicate requests (10 tests)
 ```
 
@@ -259,7 +260,8 @@ tests/
 | GET | /api/me/submissions | student | Your suggested questions and their status |
 | GET | /api/quizzes | | Live quizzes and today's challenge |
 | GET | /api/quizzes/played-today | student | Quizzes already rewarded today |
-| POST | /api/quizzes/:id/start | student | Start an attempt; returns only the first question (no answer) and the total |
+| POST | /api/quizzes/:id/start | student | Start an attempt, or resume an unfinished one; returns the current question (no answer), position, score and time left |
+| GET | /api/quizzes/in-progress | student | Unfinished attempts, for "Continue" buttons |
 | POST | /api/attempts/:id/answer | student | Lock `{questionId, choice}` for the current question; returns right/wrong, answer, explanation |
 | POST | /api/attempts/:id/next | student | Release the next question once the current one is answered |
 | POST | /api/attempts/:id/submit | student | Finish; returns score, points, review, level, streak, new badges |
@@ -285,11 +287,12 @@ tests/
 
 ## Testing
 
-`npm test` runs 31 integration tests. Each test file starts the real Express app on a random port with a fresh in-memory database.
+`npm test` runs 35 integration tests. Each test file starts the real Express app on a random port with a fresh in-memory database.
 
 **Features and rules** (`tests/api.test.js`):
 - every quiz presents 10 four-option questions
-- `/start` sends only the first question and never an answer; questions can't be answered early, skipped, or after their time
+- `/start` sends only the current question and never an answer; questions can't be answered early, skipped, or after their time
+- leaving and coming back resumes the same attempt, with the clock still running
 - perfect-score bonus, and points once per day
 - a second submit gets `409`, and late submissions earn nothing
 - locked answers can't be changed, and only locked answers are scored

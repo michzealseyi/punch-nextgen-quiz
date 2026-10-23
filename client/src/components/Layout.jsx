@@ -68,9 +68,11 @@ const NAV = [
 const PILLARS = [['/', 'learn', 'Learn'], ['/challenge', 'play', 'Play'], ['/explore', 'explore', 'Explore'], ['/leaderboard', 'belong', 'Belong']];
 
 export default function Layout() {
-  const { me, ready } = useAuth();
+  const { me, ready, loadInProgress } = useAuth();
   const { pathname } = useLocation();
   useEffect(() => { window.scrollTo(0, 0); }, [pathname]);
+  // Keep the "Continue" buttons accurate as the student moves around
+  useEffect(() => { if (me) loadInProgress(); }, [pathname, me?.id, loadInProgress]);
 
   return (
     <>

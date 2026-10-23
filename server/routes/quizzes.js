@@ -26,9 +26,54 @@ quizzes.get('/played-today', requireAuth, wrap((req, res) => {
   res.json({ quizIds: quizIdsPlayedToday(req.user.id) });
 }));
 
+// Quizzes this student has started but not finished, so the UI can offer "Continue"
+quizzes.get('/in-progress', requireAuth, wrap((req, res) => {
+  res.json({ attempts: db.prepare(`SELECT quiz_id quizId, current_index "index", total FROM attempts
+                                   WHERE user_id=? AND status='in_progress' AND deadline_at>?`).all(req.user.id, Date.now()) });
+}));
+
+const quizView = (quiz, challenge) => ({
+  id: quiz.id, title: quiz.title, category: quiz.category, secondsPerQuestion: quiz.seconds_per_question,
+  pointsPerCorrect: quiz.points_per_correct * (challenge ? RULES.CHALLENGE_MULTIPLIER : 1), challenge: !!challenge,
+});
+
+// Where an attempt stands right now: the current question, the score so far, the time left on the
+// current question (the clock keeps running while the student is away), and its feedback if already answered.
+function attemptView(attempt, quiz, resumed) {
+  const ids = JSON.parse(attempt.question_ids);
+  const qid = ids[attempt.current_index];
+  const score = db.prepare(`SELECT COUNT(*) n FROM attempt_answers a JOIN questions q ON q.id=a.question_id
+                            WHERE a.attempt_id=? AND a.choice=q.answer_index`).get(attempt.id).n;
+  const locked = db.prepare('SELECT choice FROM attempt_answers WHERE attempt_id=? AND question_id=?').get(attempt.id, qid);
+  let answered = null;
+  if (locked) {
+    const q = db.prepare('SELECT answer_index, explanation FROM questions WHERE id=?').get(qid);
+    answered = { choice: locked.choice, correct: locked.choice === q.answer_index, answer: q.answer_index, explanation: q.explanation,
+      last: attempt.current_index === ids.length - 1 };
+  }
+  const msLeft = attempt.served_at + quiz.seconds_per_question * 1000 - Date.now();
+  return {
+    attemptId: attempt.id,
+    quiz: quizView(quiz, attempt.challenge),
+    total: ids.length,
+    index: attempt.current_index,
+    question: publicQuestion(qid),
+    score,
+    answered,
+    secondsLeft: Math.max(0, Math.min(quiz.seconds_per_question, msLeft / 1000)),
+    resumed,
+  };
+}
+
 quizzes.post('/:id/start', requireAuth, wrap((req, res) => {
   const quiz = db.prepare('SELECT * FROM quizzes WHERE id=? AND active=1').get(req.params.id);
   if (!quiz) throw new HttpError(404, 'This quiz isn’t available.');
+
+  // Coming back to a quiz you left continues the same attempt, at the same question, on the same clock.
+  // Restarting to get fresh questions or a fresh timer isn't possible until the attempt expires.
+  const open = db.prepare(`SELECT * FROM attempts WHERE user_id=? AND quiz_id=? AND status='in_progress'
+                           ORDER BY id DESC LIMIT 1`).get(req.user.id, quiz.id);
+  if (open && Date.now() <= open.deadline_at) return res.json(attemptView(open, quiz, true));
 
   const pool = db.prepare('SELECT id FROM questions WHERE quiz_id=?').all(quiz.id);
   if (!pool.length) throw new HttpError(409, 'This quiz has no questions yet.');
@@ -39,22 +84,16 @@ quizzes.post('/:id/start', requireAuth, wrap((req, res) => {
   const deadline = now + picked.length * (quiz.seconds_per_question * 1000 + RULES.IDLE_ALLOWANCE_MS);
   const challenge = quiz.id === challengeQuizId(now) ? 1 : 0;
 
-  // Abandon any open attempt for this quiz so only one can be live
+  // Any open attempt left at this point has run out of time: close it so only one can be live
   db.prepare(`UPDATE attempts SET status='expired', finished_at=? WHERE user_id=? AND quiz_id=? AND status='in_progress'`)
     .run(now, req.user.id, quiz.id);
   const attemptId = db.prepare(`INSERT INTO attempts (user_id, quiz_id, question_ids, total, started_at, deadline_at, challenge, current_index, served_at)
                                 VALUES (?,?,?,?,?,?,?,0,?)`)
     .run(req.user.id, quiz.id, JSON.stringify(picked), picked.length, now, deadline, challenge, now).lastInsertRowid;
 
-  res.status(201).json({
-    attemptId,
-    quiz: { id: quiz.id, title: quiz.title, category: quiz.category, secondsPerQuestion: quiz.seconds_per_question,
-      pointsPerCorrect: quiz.points_per_correct * (challenge ? RULES.CHALLENGE_MULTIPLIER : 1), challenge: !!challenge },
-    total: picked.length,
-    index: 0,
-    // Only the first question; the rest are released one by one through /next
-    question: publicQuestion(picked[0]),
-  });
+  // Only the first question; the rest are released one by one through /next
+  const attempt = db.prepare('SELECT * FROM attempts WHERE id=?').get(attemptId);
+  res.status(201).json(attemptView(attempt, quiz, false));
 }));
 
 function ownAttempt(id, userId) {
